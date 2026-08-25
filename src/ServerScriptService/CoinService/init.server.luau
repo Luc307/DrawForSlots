@@ -1,6 +1,8 @@
 local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Config = require(ReplicatedStorage:WaitForChild("GameConfig"))
 local CoinDS = DataStoreService:GetDataStore("PlayerCoins")
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local GetCoins = Remotes:WaitForChild("GetCoins")
@@ -70,5 +72,17 @@ local function readCoins(player)
 end
 
 GetCoinsFunc.OnInvoke = readCoins
+
+if Config.TESTING_GIVE_COINS then
+	local amount = Config.TESTING_COINS_AMOUNT
+	local function grantTestCoins(player)
+		giveCoins(player, amount)
+	end
+	Players.PlayerAdded:Connect(grantTestCoins)
+	for _, player in Players:GetPlayers() do
+		task.spawn(grantTestCoins, player)
+	end
+	print("[CoinService] Testing: +" .. amount .. " coins each session")
+end
 
 print("[CoinService] Ready!")

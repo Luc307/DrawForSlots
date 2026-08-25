@@ -160,10 +160,11 @@ do
 		local stage = Instance.new("Frame")
 		stage.Name = "WheelStage"
 		stage.AnchorPoint = Vector2.new(0.5, 0.5)
-		stage.Position = UDim2.new(0.5, 0, 0.42, 0)
-		stage.Size = UDim2.new(0.55, 0, 0.55, 0)
+		stage.Position = UDim2.new(0.5, 0, 0.43, 0)
+		stage.Size = UDim2.new(0.4, 0, 0.53, 0)
 		stage.BackgroundColor3 = Color3.fromRGB(28, 42, 82)
 		stage.BorderSizePixel = 0
+		stage.ClipsDescendants = true
 		stage.ZIndex = 10
 		stage.Parent = wheelPage
 		local sc = Instance.new("UICorner")
@@ -178,9 +179,9 @@ do
 		local pointer = Instance.new("TextLabel")
 		pointer.Name = "Pointer"
 		pointer.BackgroundTransparency = 1
-		pointer.Size = UDim2.new(0.12, 0, 0.1, 0)
-		pointer.Position = UDim2.new(0.5, 0, 0.02, 0)
-		pointer.AnchorPoint = Vector2.new(0.5, 0)
+		pointer.Size = UDim2.new(0.08, 0, 0.055, 0)
+		pointer.Position = UDim2.new(0.5, 0, 0.16, 0)
+		pointer.AnchorPoint = Vector2.new(0.5, 1)
 		pointer.Text = "V"
 		pointer.Font = Enum.Font.GothamBlack
 		pointer.TextScaled = true
@@ -189,17 +190,18 @@ do
 		pointer.Parent = wheelPage
 		local betRow = Instance.new("Frame")
 		betRow.Name = "BetRow"
-		betRow.Size = UDim2.new(0.7, 0, 0.08, 0)
-		betRow.Position = UDim2.new(0.5, 0, 0.74, 0)
-		betRow.AnchorPoint = Vector2.new(0.5, 0)
+		betRow.Size = UDim2.new(0.34, 0, 0.15, 0)
+		betRow.Position = UDim2.new(0.06, 0, 0.85, 0)
+		betRow.AnchorPoint = Vector2.new(0, 0.5)
 		betRow.BackgroundTransparency = 1
 		betRow.ZIndex = 20
 		betRow.Parent = wheelPage
-		makeBtn(betRow, "MinusBtn", "-", UDim2.new(0.15, 0, 1, 0), UDim2.new(0, 0, 0, 0))
+		makeBtn(betRow, "MinusBtn", "-", UDim2.new(0.18, 0, 0.85, 0), UDim2.new(0, 0, 0.5, 0))
 		local betIn = Instance.new("TextBox")
 		betIn.Name = "BetInput"
-		betIn.Size = UDim2.new(0.4, 0, 1, 0)
-		betIn.Position = UDim2.new(0.3, 0, 0, 0)
+		betIn.Size = UDim2.new(0.34, 0, 0.85, 0)
+		betIn.Position = UDim2.new(0.2, 0, 0.5, 0)
+		betIn.AnchorPoint = Vector2.new(0, 0.5)
 		betIn.Text = "100"
 		betIn.Font = Enum.Font.GothamBold
 		betIn.TextScaled = true
@@ -211,17 +213,23 @@ do
 		local bic = Instance.new("UICorner")
 		bic.CornerRadius = UDim.new(0, 12)
 		bic.Parent = betIn
-		makeBtn(betRow, "PlusBtn", "+", UDim2.new(0.12, 0, 1, 0), UDim2.new(0.72, 0, 0, 0))
-		makeBtn(betRow, "MaxBtn", "MAX", UDim2.new(0.14, 0, 1, 0), UDim2.new(0.86, 0, 0, 0))
-		local riskBtn = makeBtn(wheelPage, "RiskBtn", "RISK: OFF", UDim2.new(0.28, 0, 0.07, 0), UDim2.new(0.2, 0, 0.84, 0))
-		riskBtn.AnchorPoint = Vector2.new(0.5, 0)
-		local spinBtn = makeBtn(wheelPage, "SpinBtn", "SPIN", UDim2.new(0.28, 0, 0.07, 0), UDim2.new(0.8, 0, 0.84, 0))
-		spinBtn.AnchorPoint = Vector2.new(0.5, 0)
+		makeBtn(betRow, "PlusBtn", "+", UDim2.new(0.18, 0, 0.85, 0), UDim2.new(0.56, 0, 0.5, 0))
+		makeBtn(betRow, "MaxBtn", "MAX", UDim2.new(0.24, 0, 0.85, 0), UDim2.new(0.76, 0, 0.5, 0))
+		for _, n in ipairs({ "MinusBtn", "PlusBtn", "MaxBtn" }) do
+			local b = betRow:FindFirstChild(n)
+			if b and b:IsA("GuiObject") then
+				b.AnchorPoint = Vector2.new(0, 0.5)
+			end
+		end
+		local riskBtn = makeBtn(wheelPage, "RiskBtn", "RISK: OFF", UDim2.new(0.13, 0, 0.15, 0), UDim2.new(0.42, 0, 0.85, 0))
+		riskBtn.AnchorPoint = Vector2.new(0, 0.5)
+		local spinBtn = makeBtn(wheelPage, "SpinBtn", "SPIN", UDim2.new(0.15, 0, 0.15, 0), UDim2.new(0.56, 0, 0.85, 0))
+		spinBtn.AnchorPoint = Vector2.new(0, 0.5)
 		local resultBg = Instance.new("Frame")
 		resultBg.Name = "ResultBg"
-		resultBg.Size = UDim2.new(0.5, 0, 0.08, 0)
-		resultBg.Position = UDim2.new(0.5, 0, 0.92, 0)
-		resultBg.AnchorPoint = Vector2.new(0.5, 0)
+		resultBg.Size = UDim2.new(0.22, 0, 0.15, 0)
+		resultBg.Position = UDim2.new(0.96, 0, 0.85, 0)
+		resultBg.AnchorPoint = Vector2.new(1, 0.5)
 		resultBg.BackgroundColor3 = Color3.fromRGB(28, 42, 82)
 		resultBg.Visible = false
 		resultBg.ZIndex = 25
@@ -231,16 +239,24 @@ do
 		rc.Parent = resultBg
 		makeLabel(resultBg, "ResultLbl", "", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
 	end
+	-- Clean stale hand-built caption that overlaps MinusBtn on pre-existing ShopGui
+	local betRowWheel = wheelPage:FindFirstChild("BetRow")
+	if betRowWheel then
+		local strayCaption = betRowWheel:FindFirstChild("TextLabel")
+		if strayCaption then
+			strayCaption:Destroy()
+		end
+	end
 end
 
--- Build Mines page chrome once
+-- Build Mines page chrome once (fill missing kids if ShopGui partial)
 do
 	if not minesPage:FindFirstChild("GridFrame") then
 		local grid = Instance.new("Frame")
 		grid.Name = "GridFrame"
 		grid.AnchorPoint = Vector2.new(0.5, 0.5)
-		grid.Position = UDim2.new(0.55, 0, 0.48, 0)
-		grid.Size = UDim2.new(0.55, 0, 0.62, 0)
+		grid.Position = UDim2.new(0.5, 0, 0.43, 0)
+		grid.Size = UDim2.new(0.42, 0, 0.55, 0)
 		grid.BackgroundColor3 = Color3.fromRGB(28, 42, 82)
 		grid.BorderSizePixel = 0
 		grid.ZIndex = 10
@@ -248,48 +264,152 @@ do
 		local gc = Instance.new("UICorner")
 		gc.CornerRadius = UDim.new(0, 16)
 		gc.Parent = grid
-		local left = Instance.new("Frame")
+	end
+	do
+		local grid = minesPage:FindFirstChild("GridFrame")
+		if grid and not grid:FindFirstChild("GridInner") then
+			local inner = Instance.new("Frame")
+			inner.Name = "GridInner"
+			inner.AnchorPoint = Vector2.new(0.5, 0.5)
+			inner.Position = UDim2.fromScale(0.5, 0.5)
+			inner.Size = UDim2.fromScale(0.9, 0.92)
+			inner.BackgroundTransparency = 1
+			inner.ZIndex = 11
+			inner.Parent = grid
+			local ar = Instance.new("UIAspectRatioConstraint")
+			ar.AspectRatio = 1
+			ar.DominantAxis = Enum.DominantAxis.Height
+			ar.Parent = inner
+		end
+	end
+	local left = minesPage:FindFirstChild("LeftPanel")
+	if not left then
+		left = Instance.new("Frame")
 		left.Name = "LeftPanel"
-		left.Size = UDim2.new(0.28, 0, 0.7, 0)
-		left.Position = UDim2.new(0.04, 0, 0.18, 0)
+		left.Size = UDim2.new(0.92, 0, 0.18, 0)
+		left.Position = UDim2.new(0.5, 0, 0.76, 0)
+		left.AnchorPoint = Vector2.new(0.5, 0)
 		left.BackgroundTransparency = 1
 		left.ZIndex = 15
 		left.Parent = minesPage
-		makeLabel(left, "MultLbl", "1.00x", UDim2.new(1, 0, 0.12, 0), UDim2.new(0, 0, 0, 0))
-		makeLabel(left, "InfoLbl", "Bombs: 1", UDim2.new(1, 0, 0.1, 0), UDim2.new(0, 0, 0.12, 0))
-		local sizeRow = Instance.new("Frame")
+	end
+	-- Clean stale nested containers from hand-built ShopGui (InfoBox/SizeGroup/Controls
+	-- don't match the flat names below, so leaving them causes duplicate overlapping UI)
+	local staleInfoBox = left:FindFirstChild("InfoBox")
+	if staleInfoBox then
+		staleInfoBox:Destroy()
+	end
+	local staleSizeGroup = left:FindFirstChild("SizeGroup")
+	if staleSizeGroup then
+		staleSizeGroup:Destroy()
+	end
+
+	local win = left:FindFirstChild("WinDisplay")
+	if not win then
+		win = Instance.new("Frame")
+		win.Name = "WinDisplay"
+		win.Size = UDim2.new(0.18, 0, 0.9, 0)
+		win.Position = UDim2.new(0.98, 0, 0.5, 0)
+		win.AnchorPoint = Vector2.new(1, 0.5)
+		win.BackgroundColor3 = Color3.fromRGB(12, 18, 40)
+		win.BorderSizePixel = 0
+		win.ZIndex = 31
+		win.Parent = left
+		local wc = Instance.new("UICorner")
+		wc.CornerRadius = UDim.new(0, 12)
+		wc.Parent = win
+	end
+	if not win:FindFirstChild("MultLbl") and not left:FindFirstChild("MultLbl") then
+		makeLabel(win, "MultLbl", "1.00x", UDim2.new(1, -8, 0.48, 0), UDim2.new(0.5, 0, 0.08, 0))
+		local ml = win:FindFirstChild("MultLbl")
+		if ml and ml:IsA("GuiObject") then
+			ml.AnchorPoint = Vector2.new(0.5, 0)
+		end
+	end
+	if not win:FindFirstChild("InfoLbl") and not left:FindFirstChild("InfoLbl") then
+		makeLabel(win, "InfoLbl", "Bombs: 1", UDim2.new(1, -8, 0.38, 0), UDim2.new(0.5, 0, 0.92, 0))
+		local il = win:FindFirstChild("InfoLbl")
+		if il and il:IsA("GuiObject") then
+			il.AnchorPoint = Vector2.new(0.5, 1)
+		end
+	end
+	-- Migrate old side-panel labels into WinDisplay
+	local oldMult = left:FindFirstChild("MultLbl")
+	if oldMult then
+		oldMult.Parent = win
+	end
+	local oldInfo = left:FindFirstChild("InfoLbl")
+	if oldInfo then
+		oldInfo.Parent = win
+	end
+	local sizeRow = left:FindFirstChild("SizeRow")
+	if not sizeRow then
+		sizeRow = Instance.new("Frame")
 		sizeRow.Name = "SizeRow"
-		sizeRow.Size = UDim2.new(1, 0, 0.12, 0)
-		sizeRow.Position = UDim2.new(0, 0, 0.26, 0)
+		sizeRow.Size = UDim2.new(0.22, 0, 0.85, 0)
+		sizeRow.Position = UDim2.new(0.02, 0, 0.5, 0)
+		sizeRow.AnchorPoint = Vector2.new(0, 0.5)
 		sizeRow.BackgroundTransparency = 1
 		sizeRow.Parent = left
 		makeBtn(sizeRow, "Size3", "3x3", UDim2.new(0.3, 0, 1, 0), UDim2.new(0, 0, 0, 0))
 		makeBtn(sizeRow, "Size4", "4x4", UDim2.new(0.3, 0, 1, 0), UDim2.new(0.35, 0, 0, 0))
 		makeBtn(sizeRow, "Size5", "5x5", UDim2.new(0.3, 0, 1, 0), UDim2.new(0.7, 0, 0, 0))
-		local betRow = Instance.new("Frame")
+	end
+	local betRow = left:FindFirstChild("BetRow")
+	if not betRow then
+		betRow = Instance.new("Frame")
 		betRow.Name = "BetRow"
-		betRow.Size = UDim2.new(1, 0, 0.12, 0)
-		betRow.Position = UDim2.new(0, 0, 0.42, 0)
+		betRow.Size = UDim2.new(0.26, 0, 0.85, 0)
+		betRow.Position = UDim2.new(0.26, 0, 0.5, 0)
+		betRow.AnchorPoint = Vector2.new(0, 0.5)
 		betRow.BackgroundTransparency = 1
 		betRow.Parent = left
+	end
+	local staleControls = betRow:FindFirstChild("Controls")
+	if staleControls then
+		staleControls:Destroy()
+	end
+	local staleCaption = betRow:FindFirstChild("TextLabel")
+	if staleCaption then
+		staleCaption:Destroy()
+	end
+	if not betRow:FindFirstChild("MinusBtn") then
 		makeBtn(betRow, "MinusBtn", "-", UDim2.new(0.22, 0, 1, 0), UDim2.new(0, 0, 0, 0))
-		local betIn = Instance.new("TextBox")
-		betIn.Name = "BetInput"
-		betIn.Size = UDim2.new(0.5, 0, 1, 0)
-		betIn.Position = UDim2.new(0.25, 0, 0, 0)
-		betIn.Text = "100"
-		betIn.Font = Enum.Font.GothamBold
-		betIn.TextScaled = true
-		betIn.BackgroundColor3 = Color3.fromRGB(28, 42, 82)
-		betIn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		betIn.BorderSizePixel = 0
-		betIn.Parent = betRow
-		local bic = Instance.new("UICorner")
-		bic.CornerRadius = UDim.new(0, 12)
-		bic.Parent = betIn
+	end
+	if not betRow:FindFirstChild("BetInput") then
+		local existingBox = betRow:FindFirstChildWhichIsA("TextBox")
+		if existingBox then
+			existingBox.Name = "BetInput"
+		else
+			local betIn = Instance.new("TextBox")
+			betIn.Name = "BetInput"
+			betIn.Size = UDim2.new(0.5, 0, 1, 0)
+			betIn.Position = UDim2.new(0.25, 0, 0, 0)
+			betIn.Text = "100"
+			betIn.Font = Enum.Font.GothamBold
+			betIn.TextScaled = true
+			betIn.BackgroundColor3 = Color3.fromRGB(28, 42, 82)
+			betIn.TextColor3 = Color3.fromRGB(255, 255, 255)
+			betIn.BorderSizePixel = 0
+			betIn.Parent = betRow
+			local bic = Instance.new("UICorner")
+			bic.CornerRadius = UDim.new(0, 12)
+			bic.Parent = betIn
+		end
+	end
+	if not betRow:FindFirstChild("PlusBtn") then
 		makeBtn(betRow, "PlusBtn", "+", UDim2.new(0.22, 0, 1, 0), UDim2.new(0.78, 0, 0, 0))
-		makeBtn(left, "StartBtn", "START", UDim2.new(1, 0, 0.12, 0), UDim2.new(0, 0, 0.6, 0))
-		makeBtn(left, "CollectBtn", "COLLECT", UDim2.new(1, 0, 0.12, 0), UDim2.new(0, 0, 0.76, 0))
+	end
+	if not left:FindFirstChild("StartBtn") then
+		makeBtn(left, "StartBtn", "START", UDim2.new(0.20, 0, 0.78, 0), UDim2.new(0.62, 0, 0.5, 0))
+		local sb = left:FindFirstChild("StartBtn")
+		if sb and sb:IsA("GuiObject") then
+			sb.AnchorPoint = Vector2.new(0.5, 0.5)
+		end
+	end
+	local staleCollect = left:FindFirstChild("CollectBtn")
+	if staleCollect then
+		staleCollect:Destroy()
 	end
 end
 
@@ -345,7 +465,9 @@ local function forceCloseGui()
 		local dailyBusy = base and base:GetAttribute('DailyRewardBusy') == true
 		local dailyPanel = base and base:FindFirstChild('DailyReward')
 		local dailyOpen = dailyBusy or (dailyPanel ~= nil and dailyPanel.Visible)
-		if not dailyOpen then
+		local mainGui = lobbyCoin.Parent
+		local inQueue = mainGui and mainGui:GetAttribute('InQueue') == true
+		if not dailyOpen and not inQueue then
 			lobbyCoin.Visible = true
 		end
 	end
@@ -532,7 +654,9 @@ local function setShopCoinVisible(open)
         local dailyBusy = base and base:GetAttribute('DailyRewardBusy') == true
         local dailyPanel = base and base:FindFirstChild('DailyReward')
         local dailyOpen = dailyBusy or (dailyPanel ~= nil and dailyPanel.Visible)
-        local showHud = (not open) and (not dailyOpen)
+        local mainGui = lobbyCoin.Parent
+        local inQueue = mainGui and mainGui:GetAttribute('InQueue') == true
+        local showHud = (not open) and (not dailyOpen) and (not inQueue)
         lobbyCoin.Visible = showHud
         if lobbyCoin.Name == 'HudCoinsLabel' and showHud and lobbyCoin.TextTransparency > 0.9 then
             lobbyCoin.TextTransparency = 0.15
@@ -938,7 +1062,217 @@ local function applyResponsiveLayout()
         end
     end
 
-    coinBadge.AnchorPoint = Vector2.new(1, 0)
+    do
+        ensureGameTitle(wheelPage, "Lucky Wheel")
+        local side = PLAY_H * 0.86
+        local stage = wheelPage:FindFirstChild("WheelStage")
+        if stage and stage:IsA("GuiObject") then
+            stage.AnchorPoint = Vector2.new(0.5, 0.5)
+            stage.Position = UDim2.new(0.5, 0, PLAY_TOP + PLAY_H * 0.52, 0)
+            stage.Size = UDim2.new(side / CARD_ASPECT, 0, side, 0)
+            stage.ClipsDescendants = true
+            local ar = stage:FindFirstChild("SquareLock")
+            if not ar then
+                ar = Instance.new("UIAspectRatioConstraint")
+                ar.Name = "SquareLock"
+                ar.Parent = stage
+            end
+            ar.AspectRatio = 1
+            ar.DominantAxis = Enum.DominantAxis.Height
+        end
+        local pointer = wheelPage:FindFirstChild("Pointer")
+        if pointer and pointer:IsA("GuiObject") then
+            pointer.AnchorPoint = Vector2.new(0.5, 1)
+            pointer.Position = UDim2.new(0.5, 0, PLAY_TOP + PLAY_H * 0.52 - side * 0.5, 0)
+            pointer.Size = UDim2.new(0.06, 0, 0.05, 0)
+            pointer.ZIndex = 40
+            fitText(pointer, 18, 36)
+        end
+        local ctrlY = CTRL_TOP + CTRL_H * 0.5
+        local bet = wheelPage:FindFirstChild("BetRow")
+        if bet and bet:IsA("GuiObject") then
+            bet.Size = UDim2.new(0.32, 0, CTRL_H * 0.85, 0)
+            bet.Position = UDim2.new(PAD, 0, ctrlY, 0)
+            bet.AnchorPoint = Vector2.new(0, 0.5)
+            bet.ZIndex = 30
+            local minus = bet:FindFirstChild("MinusBtn")
+            local input = bet:FindFirstChild("BetInput")
+            local plus = bet:FindFirstChild("PlusBtn")
+            local maxB = bet:FindFirstChild("MaxBtn")
+            if minus then
+                minus.Size = UDim2.new(0.18, 0, 0.85, 0)
+                minus.Position = UDim2.new(0, 0, 0.5, 0)
+                minus.AnchorPoint = Vector2.new(0, 0.5)
+                fitText(minus, THEME.BTN_MIN, THEME.BTN_MAX)
+            end
+            if input then
+                input.Size = UDim2.new(0.34, 0, 0.85, 0)
+                input.Position = UDim2.new(0.2, 0, 0.5, 0)
+                input.AnchorPoint = Vector2.new(0, 0.5)
+                fitText(input, THEME.TEXT_MIN, THEME.TEXT_MAX)
+            end
+            if plus then
+                plus.Size = UDim2.new(0.18, 0, 0.85, 0)
+                plus.Position = UDim2.new(0.56, 0, 0.5, 0)
+                plus.AnchorPoint = Vector2.new(0, 0.5)
+                fitText(plus, THEME.BTN_MIN, THEME.BTN_MAX)
+            end
+            if maxB then
+                maxB.Size = UDim2.new(0.24, 0, 0.85, 0)
+                maxB.Position = UDim2.new(0.76, 0, 0.5, 0)
+                maxB.AnchorPoint = Vector2.new(0, 0.5)
+                fitText(maxB, THEME.BTN_MIN, THEME.BTN_MAX)
+            end
+        end
+        local risk = wheelPage:FindFirstChild("RiskBtn")
+        if risk and risk:IsA("GuiObject") then
+            risk.Size = UDim2.new(0.13, 0, CTRL_H * 0.85, 0)
+            risk.Position = UDim2.new(0.42, 0, ctrlY, 0)
+            risk.AnchorPoint = Vector2.new(0, 0.5)
+            risk.ZIndex = 30
+            fitText(risk, THEME.BTN_MIN, THEME.BTN_MAX)
+        end
+        local spin = wheelPage:FindFirstChild("SpinBtn")
+        if spin and spin:IsA("GuiObject") then
+            spin.Size = UDim2.new(0.15, 0, CTRL_H * 0.85, 0)
+            spin.Position = UDim2.new(0.56, 0, ctrlY, 0)
+            spin.AnchorPoint = Vector2.new(0, 0.5)
+            spin.ZIndex = 30
+            fitText(spin, 22, 44)
+        end
+        local result = wheelPage:FindFirstChild("ResultBg")
+        if result and result:IsA("GuiObject") then
+            result.Size = UDim2.new(0.22, 0, CTRL_H * 0.85, 0)
+            result.Position = UDim2.new(1 - PAD, 0, ctrlY, 0)
+            result.AnchorPoint = Vector2.new(1, 0.5)
+            result.ZIndex = 30
+            local rl = result:FindFirstChild("ResultLbl")
+            if rl then
+                rl.Size = UDim2.new(1, -14, 1, -12)
+                rl.Position = UDim2.new(0.5, 0, 0.5, 0)
+                rl.AnchorPoint = Vector2.new(0.5, 0.5)
+                rl.TextWrapped = true
+                rl.TextXAlignment = Enum.TextXAlignment.Center
+                rl.TextYAlignment = Enum.TextYAlignment.Center
+                fitText(rl, 16, 28)
+            end
+            styleResultBox(result, { rl })
+        end
+    end
+
+    do
+        ensureGameTitle(minesPage, "Diamond Mines")
+        local grid = minesPage:FindFirstChild("GridFrame")
+        if grid and grid:IsA("GuiObject") then
+            grid.AnchorPoint = Vector2.new(0.5, 0)
+            grid.Position = UDim2.new(0.5, 0, PLAY_TOP, 0)
+            grid.Size = UDim2.new(1 - PAD * 2, 0, PLAY_H, 0)
+            grid.ClipsDescendants = false
+            local inner = grid:FindFirstChild("GridInner")
+            if inner and inner:IsA("GuiObject") then
+                inner.AnchorPoint = Vector2.new(0.5, 0.5)
+                inner.Position = UDim2.fromScale(0.5, 0.5)
+                inner.Size = UDim2.fromScale(0.9, 0.92)
+            end
+        end
+        local left = minesPage:FindFirstChild("LeftPanel")
+        if left and left:IsA("GuiObject") then
+            left.Position = UDim2.new(0.5, 0, CTRL_TOP, 0)
+            left.Size = UDim2.new(1 - PAD * 2, 0, CTRL_H, 0)
+            left.AnchorPoint = Vector2.new(0.5, 0)
+            left.BackgroundTransparency = 1
+            left.ZIndex = 30
+            local sizeRow = left:FindFirstChild("SizeRow")
+            if sizeRow and sizeRow:IsA("GuiObject") then
+                sizeRow.Size = UDim2.new(0.20, 0, 0.85, 0)
+                sizeRow.Position = UDim2.new(0.00, 0, 0.5, 0)
+                sizeRow.AnchorPoint = Vector2.new(0, 0.5)
+                for _, btn in ipairs(sizeRow:GetChildren()) do
+                    if btn:IsA("TextButton") then
+                        local idx = if btn.Name == "Size3" then 0 elseif btn.Name == "Size4" then 1 else 2
+                        btn.Size = UDim2.new(0.3, 0, 1, 0)
+                        btn.Position = UDim2.new(idx * 0.35, 0, 0.5, 0)
+                        btn.AnchorPoint = Vector2.new(0, 0.5)
+                        fitText(btn, THEME.BTN_MIN, THEME.BTN_MAX)
+                    end
+                end
+            end
+            local bet = left:FindFirstChild("BetRow")
+            if bet and bet:IsA("GuiObject") then
+                bet.Size = UDim2.new(0.24, 0, 0.85, 0)
+                bet.Position = UDim2.new(0.22, 0, 0.5, 0)
+                bet.AnchorPoint = Vector2.new(0, 0.5)
+                local minus = bet:FindFirstChild("MinusBtn")
+                local input = bet:FindFirstChild("BetInput")
+                local plus = bet:FindFirstChild("PlusBtn")
+                if minus then
+                    minus.Size = UDim2.new(0.22, 0, 0.85, 0)
+                    minus.Position = UDim2.new(0, 0, 0.5, 0)
+                    minus.AnchorPoint = Vector2.new(0, 0.5)
+                    fitText(minus, THEME.BTN_MIN, THEME.BTN_MAX)
+                end
+                if input then
+                    input.Size = UDim2.new(0.5, 0, 0.85, 0)
+                    input.Position = UDim2.new(0.25, 0, 0.5, 0)
+                    input.AnchorPoint = Vector2.new(0, 0.5)
+                    fitText(input, THEME.TEXT_MIN, THEME.TEXT_MAX)
+                end
+                if plus then
+                    plus.Size = UDim2.new(0.22, 0, 0.85, 0)
+                    plus.Position = UDim2.new(0.78, 0, 0.5, 0)
+                    plus.AnchorPoint = Vector2.new(0, 0.5)
+                    fitText(plus, THEME.BTN_MIN, THEME.BTN_MAX)
+                end
+            end
+			local startBtn = left:FindFirstChild("StartBtn")
+			if startBtn and startBtn:IsA("GuiObject") then
+				startBtn.Size = UDim2.new(0.18, 0, 0.85, 0)
+				startBtn.Position = UDim2.new(0.48, 0, 0.5, 0)
+				startBtn.AnchorPoint = Vector2.new(0, 0.5)
+				fitText(startBtn, 18, 36)
+			end
+			local staleCollect = left:FindFirstChild("CollectBtn")
+			if staleCollect then
+				staleCollect:Destroy()
+			end
+			local win = left:FindFirstChild("WinDisplay")
+			if not win then
+				win = Instance.new("Frame")
+				win.Name = "WinDisplay"
+				win.Visible = false
+				win.Parent = left
+			end
+			if win and win:IsA("GuiObject") then
+				win.Size = UDim2.new(0.28, 0, 0.85, 0)
+				win.Position = UDim2.new(1, 0, 0.5, 0)
+				win.AnchorPoint = Vector2.new(1, 0.5)
+				win.ZIndex = 31
+				local multLbl = win:FindFirstChild("MultLbl") or left:FindFirstChild("MultLbl")
+				local infoLbl = win:FindFirstChild("InfoLbl") or left:FindFirstChild("InfoLbl")
+				if multLbl and multLbl:IsA("GuiObject") then
+					multLbl.Parent = win
+					multLbl.Size = UDim2.new(1, -10, 0.48, 0)
+					multLbl.Position = UDim2.new(0.5, 0, 0.08, 0)
+					multLbl.AnchorPoint = Vector2.new(0.5, 0)
+					multLbl.TextXAlignment = Enum.TextXAlignment.Center
+					multLbl.TextWrapped = true
+					fitText(multLbl, 18, 32)
+				end
+				if infoLbl and infoLbl:IsA("GuiObject") then
+					infoLbl.Parent = win
+					infoLbl.Size = UDim2.new(1, -10, 0.38, 0)
+					infoLbl.Position = UDim2.new(0.5, 0, 0.92, 0)
+					infoLbl.AnchorPoint = Vector2.new(0.5, 1)
+					infoLbl.TextXAlignment = Enum.TextXAlignment.Center
+					infoLbl.TextWrapped = true
+					fitText(infoLbl, 14, 22)
+				end
+				styleResultBox(win, { multLbl, infoLbl })
+			end
+		end
+	end
+
+	coinBadge.AnchorPoint = Vector2.new(1, 0)
     coinBadge.Position = UDim2.new(1, -math.floor(14 * scale), 0, math.floor(12 * scale))
     coinBadge.Size = UDim2.new(0, math.floor(BADGE_SIZE.X.Offset * math.max(scale, 0.8)), 0, math.floor(BADGE_SIZE.Y.Offset * math.max(scale, 0.8)))
     if innerCoinLbl then
@@ -1151,7 +1485,7 @@ do
             and slots3Page.LeftPanel:FindFirstChild("BetBox")
             and slots3Page.LeftPanel.BetBox:FindFirstChild("BetBtn"),
         wheelPage:FindFirstChild("SpinBtn"),
-        minesPage:FindFirstChild("LeftPanel") and minesPage.LeftPanel:FindFirstChild("CollectBtn"),
+        minesPage:FindFirstChild("LeftPanel") and minesPage.LeftPanel:FindFirstChild("StartBtn"),
     }) do
         if btn and btn:IsA("GuiButton") then
             if btn:IsA("TextButton") then
@@ -2030,8 +2364,10 @@ CasinoUiTheme.styleGhostBtn(minusBtn)
 CasinoUiTheme.styleGhostBtn(plusBtn)
 CasinoUiTheme.styleGhostBtn(maxBtn)
 CasinoUiTheme.styleResultBox(resultBg, { resultLbl })
+CasinoUiTheme.fitText(resultLbl, 16, 28)
 CasinoUiTheme.ensureGameTitle(wheelPage, "Lucky Wheel")
 CasinoUiTheme.stylePanel(stage, 99)
+stage.ClipsDescendants = true
 
 bindCoolHover(spinBtn, 1.05)
 bindCoolHover(riskBtn, 1.05)
@@ -2041,6 +2377,9 @@ bindCoolHover(plusBtn, 1.08)
 local WHEEL_SAFE = { 0.3, 0.4, 0.5, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.4 }
 local WHEEL_RISK = { 0, 0, 0, 0, 0, 0, 0.25, 0.5, 1, 1.75, 2.5, 4.8 }
 local STEPS_W = { 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 }
+local LABEL_R = 0.38
+local LABEL_W = 0.15
+local LABEL_H = 0.09
 local riskOn = false
 local curTable = WHEEL_SAFE
 local discRot = 0
@@ -2061,20 +2400,26 @@ local function rebuildDiscLabels(tbl)
 	end
 	curTable = tbl
 	local n = #tbl
+	local maxMult = 0
+	for _, mult in ipairs(tbl) do
+		if mult > maxMult then
+			maxMult = mult
+		end
+	end
 	for i, mult in ipairs(tbl) do
 		local ang = (i - 0.5) / n * 360
 		local rad = math.rad(ang - 90)
 		local lbl = Instance.new("TextLabel")
 		lbl.Name = "Seg" .. i
 		lbl.BackgroundTransparency = 1
-		lbl.Size = UDim2.new(0.22, 0, 0.12, 0)
+		lbl.Size = UDim2.new(LABEL_W, 0, LABEL_H, 0)
 		lbl.AnchorPoint = Vector2.new(0.5, 0.5)
-		lbl.Position = UDim2.new(0.5 + math.cos(rad) * 0.32, 0, 0.5 + math.sin(rad) * 0.32, 0)
+		lbl.Position = UDim2.new(0.5 + math.cos(rad) * LABEL_R, 0, 0.5 + math.sin(rad) * LABEL_R, 0)
 		lbl.Rotation = ang
 		lbl.Text = fmtMult(mult)
 		lbl.Font = Enum.Font.GothamBlack
 		lbl.TextScaled = true
-		lbl.TextColor3 = if mult >= 2 then Color3.fromRGB(255, 196, 70) elseif mult <= 0 then Color3.fromRGB(255, 90, 90) else Color3.fromRGB(230, 238, 255)
+		lbl.TextColor3 = if mult == maxMult and maxMult > 0 then Color3.fromRGB(255, 196, 70) elseif mult <= 0 then Color3.fromRGB(255, 90, 90) else Color3.fromRGB(230, 238, 255)
 		lbl.ZIndex = 12
 		lbl.Parent = disc
 	end
@@ -2234,24 +2579,32 @@ local revealMines = Remotes:WaitForChild("RevealMines")
 local collectMines = Remotes:WaitForChild("CollectMines")
 local minesUpdate = Remotes:WaitForChild("MinesUpdate")
 
-local grid = minesPage:WaitForChild("GridFrame")
+local gridHost = minesPage:WaitForChild("GridFrame")
+local grid = gridHost:FindFirstChild("GridInner") or gridHost
 local left = minesPage:WaitForChild("LeftPanel")
-local multLbl = left:WaitForChild("MultLbl")
-local infoLbl = left:WaitForChild("InfoLbl")
 local sizeRow = left:WaitForChild("SizeRow")
 local betRow = left:WaitForChild("BetRow")
 local startBtn = left:WaitForChild("StartBtn")
-local collectBtn = left:WaitForChild("CollectBtn")
 local betBox = betRow:WaitForChild("BetInput")
 local minusBtn = betRow:WaitForChild("MinusBtn")
 local plusBtn = betRow:WaitForChild("PlusBtn")
+local multLbl = left:FindFirstChild("MultLbl", true) :: TextLabel
+local infoLbl = left:FindFirstChild("InfoLbl", true) :: TextLabel
+if not multLbl then
+	multLbl = left:WaitForChild("MultLbl") :: TextLabel
+end
+if not infoLbl then
+	infoLbl = left:WaitForChild("InfoLbl") :: TextLabel
+end
+local winDisplay = left:FindFirstChild("WinDisplay") :: Frame?
 
 CasinoUiTheme.ensureGameTitle(minesPage, "Diamond Mines")
-CasinoUiTheme.stylePanel(grid, THEME.CORNER)
-CasinoUiTheme.stylePrimaryBtn(collectBtn)
+CasinoUiTheme.stylePanel(gridHost, THEME.CORNER)
 CasinoUiTheme.stylePrimaryBtn(startBtn)
 CasinoUiTheme.styleGhostBtn(minusBtn)
 CasinoUiTheme.styleGhostBtn(plusBtn)
+CasinoUiTheme.fitText(multLbl, 18, 32)
+CasinoUiTheme.fitText(infoLbl, 14, 22)
 for _, n in ipairs({ "Size3", "Size4", "Size5" }) do
 	local b = sizeRow:FindFirstChild(n)
 	if b then
@@ -2260,7 +2613,6 @@ for _, n in ipairs({ "Size3", "Size4", "Size5" }) do
 	end
 end
 bindCoolHover(startBtn, 1.05)
-bindCoolHover(collectBtn, 1.05)
 
 local STEPS_M = { 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 }
 local BOMBS_FOR = { [3] = 1, [4] = 3, [5] = 5 }
@@ -2269,7 +2621,7 @@ local inRound = false
 local cellBtns: { TextButton } = {}
 local collectPulse = Instance.new("UIScale")
 collectPulse.Name = "PulseScale"
-collectPulse.Parent = collectBtn
+collectPulse.Parent = startBtn
 
 local function getBetM()
 	return math.clamp(tonumber(betBox.Text) or 100, 10, 10000)
@@ -2301,29 +2653,6 @@ plusBtn.MouseButton1Click:Connect(function()
 		stepBetM(1)
 	end
 end)
-
-local function setSize(n)
-	if inRound then
-		return
-	end
-	sizeN = n
-	infoLbl.Text = "Bombs: " .. tostring(BOMBS_FOR[n] or 1)
-	for _, child in ipairs(sizeRow:GetChildren()) do
-		if child:IsA("TextButton") then
-			child.BackgroundColor3 = if child.Name == ("Size" .. n) then Color3.fromRGB(80, 220, 255) else Color3.fromRGB(48, 92, 180)
-		end
-	end
-end
-sizeRow.Size3.MouseButton1Click:Connect(function()
-	setSize(3)
-end)
-sizeRow.Size4.MouseButton1Click:Connect(function()
-	setSize(4)
-end)
-sizeRow.Size5.MouseButton1Click:Connect(function()
-	setSize(5)
-end)
-setSize(3)
 
 local function clearGrid()
 	for _, b in ipairs(cellBtns) do
@@ -2373,39 +2702,60 @@ local function buildGrid(cells, size)
 	end
 end
 
+local function setSize(n)
+	if inRound then
+		return
+	end
+	sizeN = n
+	infoLbl.Text = "Bombs: " .. tostring(BOMBS_FOR[n] or 1)
+	for _, child in ipairs(sizeRow:GetChildren()) do
+		if child:IsA("TextButton") then
+			child.BackgroundColor3 = if child.Name == ("Size" .. n) then Color3.fromRGB(80, 220, 255) else Color3.fromRGB(48, 92, 180)
+		end
+	end
+	buildGrid(n * n, n)
+end
+sizeRow.Size3.MouseButton1Click:Connect(function()
+	setSize(3)
+end)
+sizeRow.Size4.MouseButton1Click:Connect(function()
+	setSize(4)
+end)
+sizeRow.Size5.MouseButton1Click:Connect(function()
+	setSize(5)
+end)
+
 local function resetLobby()
 	inRound = false
 	minesRoundActive = false
 	isMinesBusy = false
 	multLbl.Text = "1.00x"
 	collectPulse.Scale = 1
+	startBtn.Text = "START"
 	startBtn.Visible = true
-	collectBtn.Visible = true
-	collectBtn.Text = "COLLECT"
+	if winDisplay then
+		winDisplay.Visible = false
+	end
 	buildGrid(sizeN * sizeN, sizeN)
 end
+setSize(3)
 resetLobby()
 
+-- StartBtn doubles as Collect once a round is active
 startBtn.MouseButton1Click:Connect(function()
-	if inRound then
-		return
-	end
-	local bet = getBetM()
-	if cachedCoins < bet then
-		infoLbl.Text = "Not enough Coins"
-		return
-	end
-	isMinesBusy = true
-	fireSpinState("start", nil)
-	startMines:FireServer(bet, sizeN)
-end)
-
-collectBtn.MouseButton1Click:Connect(function()
 	if not inRound then
-		return
+		local bet = getBetM()
+		if cachedCoins < bet then
+			infoLbl.Text = "Not enough Coins"
+			return
+		end
+		isMinesBusy = true
+		fireSpinState("start", nil)
+		startMines:FireServer(bet, sizeN)
+	else
+		isMinesBusy = true
+		collectMines:FireServer()
 	end
-	isMinesBusy = true
-	collectMines:FireServer()
 end)
 
 local function shakeGrid()
@@ -2427,7 +2777,10 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		multLbl.Text = "1.00x"
 		infoLbl.Text = "Bombs: " .. tostring(data.bombs or 1)
 		buildGrid(data.cells or (sizeN * sizeN), data.size or sizeN)
-		startBtn.Visible = false
+		startBtn.Text = "COLLECT"
+		if winDisplay then
+			winDisplay.Visible = false
+		end
 		return
 	end
 	if kind == "safe" then
@@ -2435,7 +2788,7 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		local btn = cellBtns[cell]
 		if btn then
 			btn:SetAttribute("Opened", true)
-			btn.Text = "D"
+			btn.Text = "💎"
 			btn.BackgroundColor3 = Color3.fromRGB(60, 180, 220)
 			btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 			local sc = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
@@ -2457,15 +2810,19 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		for _, bi in ipairs(bombs) do
 			local btn = cellBtns[bi]
 			if btn then
-				btn.Text = "X"
+				btn.Text = "💣"
 				btn.BackgroundColor3 = Color3.fromRGB(160, 40, 50)
 			end
 		end
 		if data.cell and cellBtns[data.cell] then
-			cellBtns[data.cell].Text = "X"
+			cellBtns[data.cell].Text = "💣"
 		end
-		multLbl.Text = "BOOM"
+		multLbl.Text = "BOOM  0x"
+		infoLbl.Text = "Better luck next time"
 		setResultContrast(multLbl, Color3.fromRGB(255, 90, 90))
+		if winDisplay then
+			winDisplay.Visible = true
+		end
 		pcall(function()
 			sndBad:Play()
 		end)
@@ -2475,7 +2832,7 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		inRound = false
 		minesRoundActive = false
 		isMinesBusy = false
-		startBtn.Visible = true
+		startBtn.Text = "START"
 		task.delay(1.2, function()
 			if not inRound then
 				resetLobby()
@@ -2485,13 +2842,19 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 	end
 	if kind == "collected" then
 		local pay = data.payout or 0
-		multLbl.Text = string.format("+%d", pay)
+		multLbl.Text = string.format("+%d Coins", pay)
+		infoLbl.Text = string.format("%.2fx multiplier", data.mult or 1)
+		if winDisplay then
+			winDisplay.Visible = true
+		end
 		if pay >= (getBetM() * 2) then
+			setResultContrast(multLbl, Color3.fromRGB(255, 196, 70))
 			pcall(function()
 				sndLegend:Play()
 			end)
 			fireSpinState("stop", "jackpot")
 		else
+			setResultContrast(multLbl, Color3.fromRGB(80, 255, 110))
 			pcall(function()
 				sndEpic:Play()
 			end)
@@ -2501,7 +2864,7 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		inRound = false
 		minesRoundActive = false
 		isMinesBusy = false
-		startBtn.Visible = true
+		startBtn.Text = "START"
 		task.delay(0.9, function()
 			if not inRound then
 				resetLobby()

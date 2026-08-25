@@ -359,6 +359,7 @@ runSession = function(playerList, playerCount)
 end
 
 -- QueueSize attribute on each ProximityPrompt selects the target queue.
+local BlockyDummy = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("BlockyDummy"))
 local lobbyFolder = workspace:WaitForChild("Floating Lobby")
 local queueDummiesFolder = lobbyFolder:FindFirstChild("Dummies") or lobbyFolder:FindFirstChild("QueueDummies")
 if not queueDummiesFolder then
@@ -376,24 +377,30 @@ local function wireDummyPrompt(prompt)
     end)
 end
 
+local function prepareDummy(dummy)
+    if not dummy:IsA("Model") then return end
+    BlockyDummy.makePassable(dummy)
+    for _, descendant in ipairs(dummy:GetDescendants()) do
+        wireDummyPrompt(descendant)
+    end
+    if dummy:GetAttribute("GMPrepared") then return end
+    dummy:SetAttribute("GMPrepared", true)
+    dummy.DescendantAdded:Connect(function(descendant)
+        wireDummyPrompt(descendant)
+    end)
+end
+
+local folderWired = false
 local function wireAllDummies(folder)
     if not folder then return end
     for _, dummy in ipairs(folder:GetChildren()) do
-        for _, descendant in ipairs(dummy:GetDescendants()) do
-            wireDummyPrompt(descendant)
-        end
-        dummy.DescendantAdded:Connect(function(descendant)
-            wireDummyPrompt(descendant)
-        end)
+        prepareDummy(dummy)
     end
+    if folderWired then return end
+    folderWired = true
     folder.ChildAdded:Connect(function(dummy)
         task.defer(function()
-            for _, descendant in ipairs(dummy:GetDescendants()) do
-                wireDummyPrompt(descendant)
-            end
-            dummy.DescendantAdded:Connect(function(descendant)
-                wireDummyPrompt(descendant)
-            end)
+            prepareDummy(dummy)
         end)
     end)
 end

@@ -4,6 +4,7 @@ local RS = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local SoundController = require(RS.Modules.SoundController)
+local BlockyDummy = require(RS.Modules.BlockyDummy)
 local player = Players.LocalPlayer
 
 local PAGE_BY_DUMMY = {
@@ -25,6 +26,7 @@ local function getOpenEvent()
 end
 
 local function wireDummy(dummy: Model, openEvent: BindableEvent)
+	BlockyDummy.makePassable(dummy)
 	local pageName = PAGE_BY_DUMMY[dummy.Name]
 	if not pageName then
 		return
@@ -73,6 +75,7 @@ task.spawn(function()
 	local function scan()
 		for _, child in dummiesFolder:GetChildren() do
 			if child:IsA("Model") then
+				BlockyDummy.makePassable(child)
 				wireDummy(child, openEvent)
 			end
 		end
@@ -82,8 +85,12 @@ task.spawn(function()
 	dummiesFolder.ChildAdded:Connect(function(child)
 		task.defer(function()
 			if child:IsA("Model") then
+				BlockyDummy.makePassable(child)
 				wireDummy(child, openEvent)
 			end
 		end)
 	end)
+	-- Humanoid can re-enable collide shortly after load
+	task.delay(0.5, scan)
+	task.delay(2, scan)
 end)

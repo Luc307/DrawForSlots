@@ -63,6 +63,18 @@ end
 local DEFAULT_WALKSPEED = 16
 local DEFAULT_JUMPPOWER = 50
 
+-- Cache default CanCollide; never force limbs collidable (BallSocket avatars shiver).
+local collideCache: { [BasePart]: boolean } = {}
+
+local function cacheCollide(char: Model)
+    table.clear(collideCache)
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            collideCache[p] = p.CanCollide
+        end
+    end
+end
+
 -- Queued/in-round players stay hidden; lobby players visible.
 local function setCharacterActive(active)
     local char = LocalPlayer.Character
@@ -70,11 +82,20 @@ local function setCharacterActive(active)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local root = char:FindFirstChild("HumanoidRootPart")
 
+    if next(collideCache) == nil then
+        cacheCollide(char)
+    end
+
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
             p.Transparency = active and 0 or 1
-            if p ~= root then
-                p.CanCollide = active
+            if active then
+                local cached = collideCache[p]
+                if cached ~= nil then
+                    p.CanCollide = cached
+                end
+            else
+                p.CanCollide = false
             end
         end
         if p:IsA("Decal") or p:IsA("Texture") then
@@ -90,8 +111,13 @@ local function setCharacterActive(active)
     if root then
         root.Transparency = 1
         root.Anchored = not active
+        if active then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
     end
     if humanoid then
+        humanoid.PlatformStand = not active
         humanoid.WalkSpeed = active and DEFAULT_WALKSPEED or 0
         humanoid.JumpPower = active and DEFAULT_JUMPPOWER or 0
     end
@@ -139,13 +165,15 @@ local function fadeIntroOut()
 end
 
 local HUD_COIN_FADE = 0.45
-local HUD_COIN_TEXT = 20
+local HUD_COIN_TEXT = 28
+local HUD_COIN_W = 260
+local HUD_COIN_H = 44
 
 local function ensureHudCoins(): TextLabel
     local existing = screenGui:FindFirstChild("HudCoinsLabel")
     if existing and existing:IsA("TextLabel") then
         existing.TextSize = HUD_COIN_TEXT
-        existing.Size = UDim2.new(0, 200, 0, 34)
+        existing.Size = UDim2.new(0, HUD_COIN_W, 0, HUD_COIN_H)
         return existing
     end
 
@@ -153,7 +181,7 @@ local function ensureHudCoins(): TextLabel
     lbl.Name = "HudCoinsLabel"
     lbl.AnchorPoint = Vector2.new(1, 0)
     lbl.Position = UDim2.new(1, -16, 0, 12)
-    lbl.Size = UDim2.new(0, 200, 0, 34)
+    lbl.Size = UDim2.new(0, HUD_COIN_W, 0, HUD_COIN_H)
     lbl.BackgroundTransparency = 1
     lbl.BorderSizePixel = 0
     lbl.Font = Enum.Font.GothamMedium
@@ -1052,6 +1080,11 @@ end)
 
 SetQueueState.OnClientEvent:Connect(function(isQueued)
     setCharacterActive(not isQueued)
+    screenGui:SetAttribute("InQueue", isQueued == true)
+    local hud = screenGui:FindFirstChild("HudCoinsLabel")
+    if hud and hud:IsA("TextLabel") then
+        hud.Visible = not isQueued
+    end
     if not isQueued then
         for _, f in ipairs(allFrames) do f.Visible = false end
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
@@ -1061,7 +1094,9 @@ end)
 local hasPlayedIntro = false
 
 local function onCharacterAdded()
+    table.clear(collideCache)
     task.wait(0.1)
+    cacheCollide(LocalPlayer.Character)
     if not hasPlayedIntro then
         hasPlayedIntro = true
         if Config.INTRO_ENABLED then

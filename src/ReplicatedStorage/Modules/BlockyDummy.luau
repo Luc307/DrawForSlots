@@ -1,6 +1,30 @@
 local Players = game:GetService("Players")
+local PhysicsService = game:GetService("PhysicsService")
+local RunService = game:GetService("RunService")
 
 local BlockyDummy = {}
+
+local PASS_GROUP = "LobbyDummy"
+local passGroupReady = false
+
+local function ensurePassGroup()
+	if passGroupReady or not RunService:IsServer() then
+		return
+	end
+	pcall(function()
+		PhysicsService:RegisterCollisionGroup(PASS_GROUP)
+	end)
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(PASS_GROUP, "Default", false)
+	end)
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(PASS_GROUP, "Player", false)
+	end)
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(PASS_GROUP, "Players", false)
+	end)
+	passGroupReady = true
+end
 
 export type JobStyle = {
 	limbColor: Color3,
@@ -130,36 +154,27 @@ function BlockyDummy.ensureJobLabel(model: Model, text: string, styleKey: string
 	end
 end
 
-local function copyPlayerSkin(dummyDesc: HumanoidDescription, playerDesc: HumanoidDescription)
+local function copyPlayerColors(dummyDesc: HumanoidDescription, playerDesc: HumanoidDescription)
 	dummyDesc.HeadColor = playerDesc.HeadColor
 	dummyDesc.LeftArmColor = playerDesc.LeftArmColor
 	dummyDesc.RightArmColor = playerDesc.RightArmColor
 	dummyDesc.TorsoColor = playerDesc.TorsoColor
 	dummyDesc.LeftLegColor = playerDesc.LeftLegColor
 	dummyDesc.RightLegColor = playerDesc.RightLegColor
-	dummyDesc.Shirt = playerDesc.Shirt
-	dummyDesc.Pants = playerDesc.Pants
-	dummyDesc.GraphicTShirt = playerDesc.GraphicTShirt
-	dummyDesc.Face = playerDesc.Face
-	dummyDesc.HatAccessory = playerDesc.HatAccessory
-	dummyDesc.HairAccessory = playerDesc.HairAccessory
-	dummyDesc.FaceAccessory = playerDesc.FaceAccessory
-	dummyDesc.NeckAccessory = playerDesc.NeckAccessory
-	dummyDesc.ShouldersAccessory = playerDesc.ShouldersAccessory
-	dummyDesc.FrontAccessory = playerDesc.FrontAccessory
-	dummyDesc.BackAccessory = playerDesc.BackAccessory
-	dummyDesc.WaistAccessory = playerDesc.WaistAccessory
-
-	local kept = {}
-	for _, acc in playerDesc:GetAccessories(true) do
-		if not acc.IsLayered then
-			table.insert(kept, acc)
-		end
-	end
-	dummyDesc:SetAccessories(kept, true)
 end
 
-function BlockyDummy.applyToCharacter(character: Model, _player: Player?)
+function BlockyDummy.buildPlayerDescription(player: Player): HumanoidDescription
+	local dummyDesc = BlockyDummy.buildDescription()
+	local ok, playerDesc = pcall(function()
+		return Players:GetHumanoidDescriptionFromUserIdAsync(player.UserId)
+	end)
+	if ok and playerDesc then
+		copyPlayerColors(dummyDesc, playerDesc)
+	end
+	return dummyDesc
+end
+
+function BlockyDummy.applyToCharacter(character: Model, player: Player?)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.RigType ~= Enum.HumanoidRigType.R15 then
 		return
@@ -167,8 +182,9 @@ function BlockyDummy.applyToCharacter(character: Model, _player: Player?)
 
 	humanoid.AutomaticScalingEnabled = false
 
-	local dummyDesc = BlockyDummy.buildDescription()
-	copyPlayerSkin(dummyDesc, humanoid:GetAppliedDescription())
+	local dummyDesc = if player
+		then BlockyDummy.buildPlayerDescription(player)
+		else BlockyDummy.buildDescription()
 
 	local ok = pcall(function()
 		humanoid:ApplyDescriptionReset(dummyDesc)
@@ -178,9 +194,35 @@ function BlockyDummy.applyToCharacter(character: Model, _player: Player?)
 	end
 
 	for _, child in character:GetChildren() do
-		if child:IsA("Accessory") then
-			if child:FindFirstChildWhichIsA("WrapLayer", true) then
-				child:Destroy()
+		if child:IsA("Accessory") or child:IsA("Shirt") or child:IsA("Pants") or child:IsA("ShirtGraphic") then
+			child:Destroy()
+		end
+	end
+end
+
+function BlockyDummy.makePassable(model: Model)
+	ensurePassGroup()
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.PlatformStand = true
+		humanoid.AutoRotate = false
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		pcall(function()
+			(humanoid :: any).EvaluateStateMachine = false
+		end)
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end)
+	end
+	local isServer = RunService:IsServer()
+	for _, inst in model:GetDescendants() do
+		if inst:IsA("BasePart") then
+			inst.Anchored = true
+			inst.CanCollide = false
+			inst.Massless = true
+			if isServer then
+				inst.CollisionGroup = PASS_GROUP
 			end
 		end
 	end
@@ -188,10 +230,7 @@ end
 
 function BlockyDummy.freeze(model: Model, styleKey: string?, skipLook: boolean?)
 	for _, inst in model:GetDescendants() do
-		if inst:IsA("BasePart") then
-			inst.Anchored = true
-			inst.CanCollide = inst.Name == "HumanoidRootPart"
-		elseif inst:IsA("Script") or inst:IsA("LocalScript") then
+		if inst:IsA("Script") or inst:IsA("LocalScript") then
 			inst:Destroy()
 		end
 	end
@@ -199,7 +238,6 @@ function BlockyDummy.freeze(model: Model, styleKey: string?, skipLook: boolean?)
 	if humanoid then
 		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 		humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-		humanoid.PlatformStand = true
 	end
 	local hrp = model:FindFirstChild("HumanoidRootPart")
 	if hrp and hrp:IsA("BasePart") then
@@ -207,13 +245,16 @@ function BlockyDummy.freeze(model: Model, styleKey: string?, skipLook: boolean?)
 	end
 	if skipLook then
 		applyPartLook(model)
+		BlockyDummy.makePassable(model)
 	else
 		BlockyDummy.applyNaturalLook(model, styleKey)
+		BlockyDummy.makePassable(model)
 	end
 end
 
 function BlockyDummy.styleLobbyDummy(model: Model, labelText: string, styleKey: string?, subLabelText: string?)
 	BlockyDummy.applyNaturalLook(model, styleKey)
+	BlockyDummy.makePassable(model)
 	BlockyDummy.ensureJobLabel(model, labelText, styleKey)
 	if subLabelText and subLabelText ~= "" then
 		BlockyDummy.ensureSubLabel(model, subLabelText, styleKey)

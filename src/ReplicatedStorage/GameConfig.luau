@@ -11,4 +11,6 @@ GameConfig.REWARDS = { [1]=1500, [2]=1000, [3]=600, [4]=250, [5]=100 }
 GameConfig.RETURN_PLACE_ID = 0
 GameConfig.MAIN_GUI_NAME = "DrawForSlotsGui"
 GameConfig.INTRO_ENABLED = true
+GameConfig.TESTING_GIVE_COINS = false
+GameConfig.TESTING_COINS_AMOUNT = 1000
 return GameConfig

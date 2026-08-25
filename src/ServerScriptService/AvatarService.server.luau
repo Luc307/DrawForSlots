@@ -1,39 +1,56 @@
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local BlockyDummy = require(ReplicatedStorage.Modules.BlockyDummy)
+local SPAWN_FORCEFIELD_DURATION = 0
 
-local RETRY_DELAYS = { 0, 0.5, 1, 2 }
+local function disableSpawnForceFields()
+	for _, inst in workspace:GetDescendants() do
+		if inst:IsA("SpawnLocation") then
+			inst.Duration = SPAWN_FORCEFIELD_DURATION
+		end
+	end
 
-local function applyBlockyLook(character: Model, player: Player)
-	BlockyDummy.applyToCharacter(character, player)
+	workspace.DescendantAdded:Connect(function(inst)
+		if inst:IsA("SpawnLocation") then
+			inst.Duration = SPAWN_FORCEFIELD_DURATION
+		end
+	end)
 end
 
-local function tryApply(character: Model, player: Player)
-	for _, delay in RETRY_DELAYS do
-		task.delay(delay, function()
-			if player.Character == character and character.Parent then
-				applyBlockyLook(character, player)
+local function stripForceField(character: Model)
+	local function remove()
+		for _, inst in character:GetDescendants() do
+			if inst:IsA("ForceField") then
+				inst:Destroy()
 			end
-		end)
+		end
+	end
+
+	remove()
+
+	local conn = character.DescendantAdded:Connect(function(inst)
+		if inst:IsA("ForceField") then
+			inst:Destroy()
+		end
+	end)
+
+	character.Destroying:Once(function()
+		conn:Disconnect()
+	end)
+
+	for _, delay in { 0.05, 0.15, 0.5, 1 } do
+		task.delay(delay, remove)
 	end
 end
 
 local function bindPlayer(player: Player)
-	player.CharacterAppearanceLoaded:Connect(function(character)
-		tryApply(character, player)
-	end)
-
-	player.CharacterAdded:Connect(function(character)
-		task.defer(function()
-			tryApply(character, player)
-		end)
-	end)
+	player.CharacterAdded:Connect(stripForceField)
 
 	if player.Character then
-		tryApply(player.Character, player)
+		stripForceField(player.Character)
 	end
 end
+
+disableSpawnForceFields()
 
 Players.PlayerAdded:Connect(bindPlayer)
 for _, player in Players:GetPlayers() do
