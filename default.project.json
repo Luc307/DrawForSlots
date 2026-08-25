@@ -1,0 +1,35 @@
+{
+  "name": "DrawForSlots",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$path": "src/ReplicatedStorage"
+    },
+
+    "ServerScriptService": {
+      "$path": "src/ServerScriptService"
+    },
+
+    "StarterPlayer": {
+      "$path": "src/StarterPlayer",
+      "$ignoreUnknownInstances": true
+    },
+
+    "StarterGui": {
+      "$ignoreUnknownInstances": true
+    },
+
+    "Workspace": {
+      "$ignoreUnknownInstances": true
+    },
+
+    "SoundService": {
+      "$ignoreUnknownInstances": true
+    },
+
+    "Lighting": {
+      "$ignoreUnknownInstances": true
+    }
+  }
+}
