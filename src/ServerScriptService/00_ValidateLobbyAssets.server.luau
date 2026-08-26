@@ -12,7 +12,8 @@ local REQUIRED_SIGNALS = {
 	"ShowPage",
 	"SpinStateChanged",
 }
-local QUEUE_DUMMIES = { "QueueDummy_3P", "QueueDummy_5P" }
+local QUEUE_BUTTONS = { "3 Player Game", "5 Player Game" }
+local CASINO_BUTTONS = { "LuckyWheel", "Plinko", "1RowSlots", "5ReelSlots", "Diamond Mines" }
 
 local function need(parent: Instance?, name: string, className: string?): boolean
 	if not parent then
@@ -60,16 +61,28 @@ local lobby = workspace:FindFirstChild("Floating Lobby")
 if not lobby then
 	warn("[ValidateLobbyAssets] Missing Floating Lobby")
 else
-	local folder = lobby:FindFirstChild("Dummies")
-	if need(lobby, "Dummies", "Folder") and folder then
-		for _, name in QUEUE_DUMMIES do
-			local dummy = folder:FindFirstChild(name)
-			if not need(folder, name, "Model") then
-				continue
+	local root = lobby:FindFirstChild("PhysicalButtons")
+	if need(lobby, "PhysicalButtons", "Folder") and root then
+		local gamemodes = root:FindFirstChild("Gamemodes")
+		local casino = root:FindFirstChild("CasinoGames")
+		need(root, "Gamemodes", "Folder")
+		need(root, "CasinoGames", "Folder")
+		if gamemodes then
+			for _, name in QUEUE_BUTTONS do
+				local model = gamemodes:FindFirstChild(name)
+				if need(gamemodes, name, "Model") and model then
+					need(model, "Button", "BasePart")
+					need(model, "InvisPart", "BasePart")
+				end
 			end
-			local hrp = dummy and dummy:FindFirstChild("HumanoidRootPart")
-			if hrp and hrp:IsA("BasePart") and not hrp:FindFirstChildOfClass("ProximityPrompt") then
-				warn("[ValidateLobbyAssets] Missing ProximityPrompt on", name)
+		end
+		if casino then
+			for _, name in CASINO_BUTTONS do
+				local model = casino:FindFirstChild(name)
+				if need(casino, name, "Model") and model then
+					need(model, "Button", "BasePart")
+					need(model, "InvisPart", "BasePart")
+				end
 			end
 		end
 	end

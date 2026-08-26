@@ -10,9 +10,9 @@ local RequestOpenUI = Signals:WaitForChild("RequestOpenUI") :: BindableEvent
 
 local player = Players.LocalPlayer
 
-local DUMMY_5P = "QueueDummy_5P"
-local DUMMY_3P = "QueueDummy_3P"
-local DUMMY_CASINO = "CasinoDummy_Mines"
+local BUTTON_5P = "5 Player Game"
+local BUTTON_3P = "3 Player Game"
+local BUTTON_CASINO = "Diamond Mines"
 local CASINO_PAGE = "mines"
 local ARROW_TEMPLATE_PATH = { "Vfx", "GuideArrow" }
 local ARROW_NEAR_HIDE_DISTANCE = 4
@@ -32,7 +32,7 @@ type ArrowState = {
 	progress: number,
 }
 
-local targetDummyName = DUMMY_5P
+local targetButtonName = BUTTON_5P
 local isQueued = false
 local finishedGameThisSession = false
 local casinoMenuOpenedThisSession = false
@@ -72,20 +72,28 @@ local function getChestPart(model: Model): BasePart?
 	return model.PrimaryPart
 end
 
-local function getTargetChest(): BasePart?
+local function getTargetButtonPart(): BasePart?
 	local lobby = workspace:FindFirstChild("Floating Lobby")
 	if not lobby then
 		return nil
 	end
-	local modeFolder = lobby:FindFirstChild("Dummies") or lobby:FindFirstChild("QueueDummies")
-	if not modeFolder then
+	local buttons = lobby:FindFirstChild("PhysicalButtons")
+	if not buttons then
 		return nil
 	end
-	local dummy = modeFolder:FindFirstChild(targetDummyName)
-	if not dummy or not dummy:IsA("Model") then
+	local model = buttons:FindFirstChild(targetButtonName, true)
+	if not model or not model:IsA("Model") then
 		return nil
 	end
-	return getChestPart(dummy)
+	local button = model:FindFirstChild("Button")
+	if button and button:IsA("BasePart") then
+		return button
+	end
+	return model.PrimaryPart
+end
+
+local function getTargetChest(): BasePart?
+	return getTargetButtonPart()
 end
 
 local function getPlayerChest(): BasePart?
@@ -255,14 +263,14 @@ SetQueueState.OnClientEvent:Connect(function(queued)
 	if queued then
 		clearAllArrows()
 	elseif wasQueued and not finishedGameThisSession then
-		targetDummyName = DUMMY_3P
+		targetButtonName = BUTTON_3P
 	end
 end)
 
 GameStateChanged.OnClientEvent:Connect(function(phase)
 	if phase == "results" then
 		finishedGameThisSession = true
-		targetDummyName = DUMMY_CASINO
+		targetButtonName = BUTTON_CASINO
 	end
 end)
 

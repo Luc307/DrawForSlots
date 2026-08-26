@@ -64,12 +64,141 @@ local SetQueueState = Remotes:WaitForChild("SetQueueState")
 
 local queueMembers  = {}
 local queuedSize    = {}
+-- Players hidden/non-colliding while queued or in a live session.
+local inactivePlayers = {}
+local collideCache = {} -- [Model] = { [BasePart] = boolean }
 
 for _, size in ipairs(Config.QUEUE_SIZES) do
     queueMembers[size] = {}
 end
 
 local runSession
+
+local DEFAULT_WALKSPEED = 40 -- do not change this value
+local DEFAULT_JUMPPOWER = 50
+
+local function cacheCollide(char)
+    local cache = {}
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            cache[p] = p.CanCollide
+        end
+    end
+    collideCache[char] = cache
+end
+
+local function findSpawnCFrame()
+    local best = nil
+    for _, inst in ipairs(workspace:GetDescendants()) do
+        if inst:IsA("SpawnLocation") then
+            best = inst.CFrame + Vector3.new(0, 5, 0)
+            break
+        end
+    end
+    return best
+end
+
+local function applyCharacterActive(char, active)
+    if not char then return end
+    if not collideCache[char] then
+        cacheCollide(char)
+    end
+    local cache = collideCache[char]
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.Transparency = active and 0 or 1
+            if active then
+                local cached = cache[p]
+                if cached ~= nil then
+                    p.CanCollide = cached
+                end
+            else
+                p.CanCollide = false
+            end
+        elseif p:IsA("Decal") or p:IsA("Texture") then
+            p.Transparency = active and 0 or 1
+        end
+    end
+
+    if root then
+        root.Transparency = 1
+        root.Anchored = not active
+        if active then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+    if humanoid then
+        humanoid.DisplayDistanceType = active
+            and Enum.HumanoidDisplayDistanceType.Viewer
+            or Enum.HumanoidDisplayDistanceType.None
+        humanoid.PlatformStand = not active
+        humanoid.WalkSpeed = active and DEFAULT_WALKSPEED or 0
+        humanoid.JumpPower = active and DEFAULT_JUMPPOWER or 0
+    end
+end
+
+local function setPlayerInactive(plr, inactive)
+    if inactive then
+        inactivePlayers[plr] = true
+    else
+        inactivePlayers[plr] = nil
+    end
+    if plr.Character then
+        applyCharacterActive(plr.Character, not inactive)
+    end
+end
+
+local function teleportToSpawn(plr)
+    local char = plr.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local spawnCf = findSpawnCFrame()
+    if not root or not spawnCf then return end
+    root.Anchored = false
+    root.CFrame = spawnCf
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+end
+
+local function releasePlayer(plr)
+    setPlayerInactive(plr, false)
+    teleportToSpawn(plr)
+    -- Re-apply active after teleport so root stays unanchored at spawn.
+    if plr.Character then
+        applyCharacterActive(plr.Character, true)
+    end
+end
+
+local function bindCharacter(plr)
+    plr.CharacterAdded:Connect(function(char)
+        collideCache[char] = nil
+        task.wait(0.1)
+        if inactivePlayers[plr] then
+            applyCharacterActive(char, false)
+        else
+            cacheCollide(char)
+        end
+        char.Destroying:Once(function()
+            collideCache[char] = nil
+        end)
+    end)
+    if plr.Character then
+        if inactivePlayers[plr] then
+            applyCharacterActive(plr.Character, false)
+        else
+            cacheCollide(plr.Character)
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(bindCharacter)
+for _, plr in ipairs(Players:GetPlayers()) do
+    bindCharacter(plr)
+end
 
 local function broadcastQueueLobby(size)
     local list = queueMembers[size]
@@ -92,16 +221,19 @@ local function leaveQueue(plr)
     end
     queuedSize[plr] = nil
     SetQueueState:FireClient(plr, false)
+    releasePlayer(plr)
     broadcastQueueLobby(size)
 end
 
 local function joinQueue(plr, size)
     if not queueMembers[size] then return end
     if queuedSize[plr] then return end
+    if inactivePlayers[plr] then return end
 
     queuedSize[plr] = size
     table.insert(queueMembers[size], plr)
 
+    setPlayerInactive(plr, true)
     SetQueueState:FireClient(plr, true)
     broadcastQueueLobby(size)
 
@@ -118,11 +250,25 @@ local function joinQueue(plr, size)
     end
 end
 
-Players.PlayerRemoving:Connect(leaveQueue)
+Players.PlayerRemoving:Connect(function(plr)
+    leaveQueue(plr)
+    inactivePlayers[plr] = nil
+end)
 
 local LeaveQueueRequest = Remotes:WaitForChild("LeaveQueueRequest")
 LeaveQueueRequest.OnServerEvent:Connect(function(plr)
     leaveQueue(plr)
+end)
+
+local ReturnToLobby = Remotes:WaitForChild("ReturnToLobby")
+ReturnToLobby.OnServerEvent:Connect(function(plr)
+    if queuedSize[plr] then
+        leaveQueue(plr)
+        return
+    end
+    if not inactivePlayers[plr] then return end
+    SetQueueState:FireClient(plr, false)
+    releasePlayer(plr)
 end)
 
 -- Session state is local so multiple queue sizes can run in parallel.
@@ -160,6 +306,37 @@ runSession = function(playerList, playerCount)
 
         local conns = {}
 
+        local function sanitizeDrawing(strokeData)
+            if typeof(strokeData) ~= "table" then return {} end
+            local out = {}
+            local total = 0
+            local maxPoints = 800
+            for _, stroke in ipairs(strokeData) do
+                if total >= maxPoints then break end
+                if typeof(stroke) ~= "table" or typeof(stroke.points) ~= "table" then
+                    continue
+                end
+                local pts = {}
+                for _, pt in ipairs(stroke.points) do
+                    if total >= maxPoints then break end
+                    if typeof(pt) == "table" and typeof(pt.x) == "number" and typeof(pt.y) == "number" then
+                        table.insert(pts, { x = pt.x, y = pt.y })
+                        total += 1
+                    end
+                end
+                if #pts > 0 then
+                    table.insert(out, {
+                        r = tonumber(stroke.r) or 0,
+                        g = tonumber(stroke.g) or 0,
+                        b = tonumber(stroke.b) or 0,
+                        size = tonumber(stroke.size) or 4,
+                        points = pts,
+                    })
+                end
+            end
+            return out
+        end
+
         conns[1] = SubmitText.OnServerEvent:Connect(function(plr, content)
             if not memberSet[plr] then return end
             if submissions[plr.UserId] then return end
@@ -172,7 +349,7 @@ runSession = function(playerList, playerCount)
         conns[2] = SubmitDrawing.OnServerEvent:Connect(function(plr, strokeData)
             if not memberSet[plr] then return end
             if submissions[plr.UserId] then return end
-            submissions[plr.UserId] = {type = "drawing", content = strokeData}
+            submissions[plr.UserId] = {type = "drawing", content = sanitizeDrawing(strokeData)}
             count += 1
             broadcast(UpdateSubmitCount, count, playerCount)
             print("[GM] Drawing from " .. plr.Name .. " (" .. count .. "/" .. playerCount .. ")")
@@ -354,61 +531,235 @@ runSession = function(playerList, playerCount)
         pcall(function() TeleportService:TeleportAsync(Config.RETURN_PLACE_ID, ids) end)
     end
     broadcast(SetQueueState, false)
+    for _, plr in ipairs(playerList) do
+        if plr and plr.Parent and inactivePlayers[plr] then
+            releasePlayer(plr)
+        end
+    end
 
     print("[GM] Session finished")
 end
 
--- QueueSize attribute on each ProximityPrompt selects the target queue.
-local BlockyDummy = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("BlockyDummy"))
+-- Physical lobby buttons: server press visual; action only when player stops on button.
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local OpenCasinoPage = Remotes:WaitForChild("OpenCasinoPage")
+
+local STOP_SPEED = Config.BUTTON_STOP_SPEED or 1
+local PRESS_DEPTH = Config.BUTTON_PRESS_DEPTH or 0.45
+local TWEEN_TIME = Config.BUTTON_TWEEN_TIME or 0.05
+
+local ACTION_BY_NAME = {
+    ["LuckyWheel"] = { kind = "casino", page = "wheel" },
+    ["Plinko"] = { kind = "casino", page = "slots3" },
+    ["1RowSlots"] = { kind = "casino", page = "slots1" },
+    ["5ReelSlots"] = { kind = "casino", page = "slots2" },
+    ["Diamond Mines"] = { kind = "casino", page = "mines" },
+    ["3 Player Game"] = { kind = "queue", size = 3 },
+    ["5 Player Game"] = { kind = "queue", size = 5 },
+}
+
 local lobbyFolder = workspace:WaitForChild("Floating Lobby")
-local queueDummiesFolder = lobbyFolder:FindFirstChild("Dummies") or lobbyFolder:FindFirstChild("QueueDummies")
-if not queueDummiesFolder then
-    queueDummiesFolder = lobbyFolder:WaitForChild("Dummies", 10)
-end
+local buttonsRoot = lobbyFolder:WaitForChild("PhysicalButtons")
 
-local function wireDummyPrompt(prompt)
-    if not prompt:IsA("ProximityPrompt") then return end
-    if prompt:GetAttribute("GMWired") then return end
-    local size = prompt:GetAttribute("QueueSize")
-    if not size then return end
-    prompt:SetAttribute("GMWired", true)
-    prompt.Triggered:Connect(function(plr)
-        joinQueue(plr, size)
-    end)
-end
-
-local function prepareDummy(dummy)
-    if not dummy:IsA("Model") then return end
-    BlockyDummy.makePassable(dummy)
-    for _, descendant in ipairs(dummy:GetDescendants()) do
-        wireDummyPrompt(descendant)
+local function getPlayerFromPart(hit)
+    local model = hit:FindFirstAncestorOfClass("Model")
+    if not model then
+        return nil
     end
-    if dummy:GetAttribute("GMPrepared") then return end
-    dummy:SetAttribute("GMPrepared", true)
-    dummy.DescendantAdded:Connect(function(descendant)
-        wireDummyPrompt(descendant)
-    end)
+    return Players:GetPlayerFromCharacter(model)
 end
 
-local folderWired = false
-local function wireAllDummies(folder)
-    if not folder then return end
-    for _, dummy in ipairs(folder:GetChildren()) do
-        prepareDummy(dummy)
+local function setPressed(button, restCF, pressed)
+    local goal = if pressed then restCF * CFrame.new(0, -PRESS_DEPTH, 0) else restCF
+    TweenService:Create(
+        button,
+        TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { CFrame = goal }
+    ):Play()
+end
+
+local function moveToLocalSpawner(plr, action)
+    local char = plr.Character
+    if not char then
+        return
     end
-    if folderWired then return end
-    folderWired = true
-    folder.ChildAdded:Connect(function(dummy)
-        task.defer(function()
-            prepareDummy(dummy)
+    local spawner = lobbyFolder:FindFirstChild(action.kind .. "Spawner")
+    if not spawner then
+        return
+    end
+
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not (hrp and hrp:IsA("BasePart")) then
+        return
+    end
+    hrp.CFrame = spawner.CFrame * CFrame.new(0, 5, 0)
+end
+
+local function activateButton(plr, action)
+    if action.kind == "queue" then
+        joinQueue(plr, action.size)
+    elseif action.kind == "casino" then
+        OpenCasinoPage:FireClient(plr, action.page)
+    end
+end
+
+local function playerOverlapsSensor(plr, sensor)
+    local char = plr.Character
+    if not char then
+        return false
+    end
+    for _, part in workspace:GetPartsInPart(sensor) do
+        if part:IsDescendantOf(char) then
+            return true
+        end
+    end
+    return false
+end
+
+local function playerIsStopped(plr)
+    local char = plr.Character
+    if not char then
+        return false
+    end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not (hrp and hrp:IsA("BasePart")) then
+        return false
+    end
+    local vel = hrp.AssemblyLinearVelocity
+    local horiz = Vector3.new(vel.X, 0, vel.Z).Magnitude
+    return horiz <= STOP_SPEED
+end
+
+local function prepareButtonModel(model)
+    if not model:IsA("Model") then
+        return
+    end
+    if model:GetAttribute("GMButtonWired") then
+        return
+    end
+    local action = ACTION_BY_NAME[model.Name]
+    if not action then
+        return
+    end
+
+    local button = model:FindFirstChild("Button")
+    local sensor = model:FindFirstChild("InvisPart")
+    if not (button and button:IsA("BasePart") and sensor and sensor:IsA("BasePart")) then
+        warn("[GM] Physical button missing Button/InvisPart:", model:GetFullName())
+        return
+    end
+
+    model:SetAttribute("GMButtonWired", true)
+
+    for _, part in model:GetDescendants() do
+        if part:IsA("BasePart") then
+            part.Anchored = true
+            part.AssemblyLinearVelocity = Vector3.zero
+            part.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+    sensor.CanCollide = false
+    sensor.CanTouch = true
+    sensor.Transparency = 1
+    button.CanCollide = true
+
+    local restCF = button.CFrame
+    local touching = {}
+    local fired = {}
+    local visuallyDown = false
+    local pollConn = nil
+
+    local function refreshVisual()
+        local anyone = next(touching) ~= nil
+        if anyone == visuallyDown then
+            return
+        end
+        visuallyDown = anyone
+        setPressed(button, restCF, visuallyDown)
+    end
+
+    local function stopPoll()
+        if pollConn then
+            pollConn:Disconnect()
+            pollConn = nil
+        end
+    end
+
+    local function onLeave(plr)
+        if not touching[plr] then
+            return
+        end
+        touching[plr] = nil
+        fired[plr] = nil
+        refreshVisual()
+        if next(touching) == nil then
+            stopPoll()
+        end
+    end
+
+    local function ensurePoll()
+        if pollConn then
+            return
+        end
+        pollConn = RunService.Heartbeat:Connect(function()
+            for plr in pairs(touching) do
+                if not playerOverlapsSensor(plr, sensor) then
+                    onLeave(plr)
+                elseif not fired[plr] and playerIsStopped(plr) then
+                    fired[plr] = true
+                    moveToLocalSpawner(plr, action)
+                    activateButton(plr, action)
+                end
+            end
         end)
+    end
+
+    local function onEnter(plr)
+        if touching[plr] then
+            return
+        end
+        touching[plr] = true
+        fired[plr] = false
+        refreshVisual()
+        ensurePoll()
+    end
+
+    sensor.Touched:Connect(function(hit)
+        if not hit:IsA("BasePart") then
+            return
+        end
+        local plr = getPlayerFromPart(hit)
+        if plr then
+            onEnter(plr)
+        end
+    end)
+
+    Players.PlayerRemoving:Connect(function(plr)
+        onLeave(plr)
     end)
 end
 
-wireAllDummies(queueDummiesFolder)
-task.defer(function()
-    task.wait(1)
-    wireAllDummies(queueDummiesFolder)
+local function wireButtonFolder(folder)
+    if not folder then
+        return
+    end
+    for _, child in folder:GetChildren() do
+        if child:IsA("Model") then
+            prepareButtonModel(child)
+        elseif child:IsA("Folder") then
+            wireButtonFolder(child)
+        end
+    end
+end
+
+wireButtonFolder(buttonsRoot)
+buttonsRoot.DescendantAdded:Connect(function(inst)
+    if inst:IsA("Model") and ACTION_BY_NAME[inst.Name] then
+        task.defer(function()
+            prepareButtonModel(inst)
+        end)
+    end
 end)
 
-print("[Draw for Slots] Queue system ready. Sizes: " .. table.concat(Config.QUEUE_SIZES, ", "))
+print("[Draw for Slots] Physical buttons ready. Queue sizes: " .. table.concat(Config.QUEUE_SIZES, ", "))

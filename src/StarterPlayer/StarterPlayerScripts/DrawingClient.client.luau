@@ -15,6 +15,10 @@ local RenderStrokesEvent = Signals:WaitForChild("RenderStrokesEvent")
 
 local CANVAS_W = 540
 local CANVAS_H = 410
+-- Keep stroke density low so clients do not freeze / disconnect mid-draw.
+local MIN_POINT_GAP = 6
+local MAX_STROKE_POINTS = 120
+local MAX_TOTAL_POINTS = 800
 
 local drawState = {
     active        = false,
@@ -27,6 +31,7 @@ local drawState = {
     canvas        = nil,
     submitted     = false,
     activeTouchId = nil,
+    totalPoints   = 0,
 }
 
 local COLORS = {
@@ -52,43 +57,85 @@ local function drawDot(canvas, x, y, color, radius)
     c.Parent = dot
 end
 
+-- Solid segment between points (rotated Frame), not dotted circles.
 local function drawLine(canvas, x1, y1, x2, y2, color, radius)
-    local dx, dy = x2-x1, y2-y1
-    local dist   = math.sqrt(dx*dx + dy*dy)
-    local steps  = math.max(1, math.floor(dist / math.max(radius*0.5, 1)))
-    for i = 0, steps do
-        local t = i/steps
-        drawDot(canvas, x1+dx*t, y1+dy*t, color, radius)
-    end
+    local dx, dy = x2 - x1, y2 - y1
+    local dist = math.sqrt(dx * dx + dy * dy)
+    if dist < 0.5 then return end
+    local thickness = math.max(2, radius * 2)
+    local seg = Instance.new("Frame")
+    seg.Name = "Seg"
+    seg.BackgroundColor3 = color
+    seg.BorderSizePixel = 0
+    seg.AnchorPoint = Vector2.new(0.5, 0.5)
+    seg.Size = UDim2.new(0, dist + thickness * 0.35, 0, thickness)
+    seg.Position = UDim2.new(0, (x1 + x2) * 0.5, 0, (y1 + y2) * 0.5)
+    seg.Rotation = math.deg(math.atan2(dy, dx))
+    seg.ZIndex = 2
+    seg.Parent = canvas
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = seg
 end
 
 local function clearCanvas(canvas)
-    for _, c in ipairs(canvas:GetChildren()) do
-        if c.Name == "Dot" then c:Destroy() end
+    local layer = canvas:FindFirstChild("StrokeLayer")
+    local roots = { canvas }
+    if layer then table.insert(roots, layer) end
+    for _, root in ipairs(roots) do
+        for _, c in ipairs(root:GetChildren()) do
+            if c.Name == "Dot" or c.Name == "Seg" then c:Destroy() end
+        end
     end
+end
+
+local function ensureStrokeLayer(canvas)
+    canvas.ClipsDescendants = true
+    local layer = canvas:FindFirstChild("StrokeLayer")
+    if not layer then
+        layer = Instance.new("Frame")
+        layer.Name = "StrokeLayer"
+        layer.BackgroundTransparency = 1
+        layer.BorderSizePixel = 0
+        layer.Size = UDim2.fromScale(1, 1)
+        layer.Position = UDim2.fromScale(0, 0)
+        layer.ClipsDescendants = true
+        layer.ZIndex = 2
+        layer.Parent = canvas
+    end
+    return layer
 end
 
 local function renderStrokes(canvas, strokes, targetW, targetH)
     if not canvas or not strokes then return end
+    local layer = ensureStrokeLayer(canvas)
     clearCanvas(canvas)
-    local scaleX, scaleY = 1, 1
-    if targetW and targetW > 0 and targetH and targetH > 0 then
-        local scale = math.min(targetW / CANVAS_W, targetH / CANVAS_H)
-        scaleX = scale ; scaleY = scale
-    end
+    local tw = targetW
+    local th = targetH
+    if not tw or tw <= 1 then tw = layer.AbsoluteSize.X end
+    if not th or th <= 1 then th = layer.AbsoluteSize.Y end
+    if tw <= 1 then tw = CANVAS_W end
+    if th <= 1 then th = CANVAS_H end
+    -- Fit 540x410 into the white box. Extra pad for rotated segment bounds.
+    local pad = 16
+    local availW = math.max(1, tw - pad * 2)
+    local availH = math.max(1, th - pad * 2)
+    local scale = math.min(availW / CANVAS_W, availH / CANVAS_H)
+    local ox = (tw - CANVAS_W * scale) * 0.5
+    local oy = (th - CANVAS_H * scale) * 0.5
     for _, stroke in ipairs(strokes) do
         local ok, color = pcall(function()
             return Color3.fromRGB(stroke.r or 0, stroke.g or 0, stroke.b or 0)
         end)
         if not ok then color = Color3.fromRGB(0,0,0) end
-        local radius = math.max(1, math.floor((stroke.size or 4) * scaleX))
+        local radius = math.max(1, math.floor((stroke.size or 4) * scale))
         local points = stroke.points
         if not points or #points == 0 then continue end
-        drawDot(canvas, points[1].x*scaleX, points[1].y*scaleY, color, radius)
+        drawDot(layer, ox + points[1].x * scale, oy + points[1].y * scale, color, radius)
         for i = 2, #points do
-            drawLine(canvas,
-                points[i-1].x*scaleX, points[i-1].y*scaleY,
-                points[i].x*scaleX,   points[i].y*scaleY,
+            drawLine(layer,
+                ox + points[i-1].x * scale, oy + points[i-1].y * scale,
+                ox + points[i].x * scale,   oy + points[i].y * scale,
                 color, radius)
         end
     end
@@ -121,6 +168,7 @@ local lastX, lastY = nil, nil
 
 local function beginStroke(x, y)
     if not drawState.active then return end
+    if drawState.totalPoints >= MAX_TOTAL_POINTS then return end
     drawState.isDrawing     = true
     drawState.undoStack     = {}
     drawState.currentStroke = {
@@ -128,6 +176,7 @@ local function beginStroke(x, y)
         size   = drawState.currentSize,
         points = {{x=x, y=y}},
     }
+    drawState.totalPoints += 1
     drawDot(drawState.canvas, x, y, drawState.currentColor, drawState.currentSize)
     lastX, lastY = x, y
 end
@@ -135,11 +184,25 @@ end
 local function continueStroke(x, y)
     if not drawState.active or not drawState.isDrawing then return end
     if lastX then
+        local dx, dy = x - lastX, y - lastY
+        if dx * dx + dy * dy < MIN_POINT_GAP * MIN_POINT_GAP then
+            return
+        end
+    end
+    local stroke = drawState.currentStroke
+    if stroke and #stroke.points >= MAX_STROKE_POINTS then
+        return
+    end
+    if drawState.totalPoints >= MAX_TOTAL_POINTS then
+        return
+    end
+    if lastX then
         drawLine(drawState.canvas, lastX, lastY, x, y,
                  drawState.currentColor, drawState.currentSize)
     end
-    if drawState.currentStroke then
-        table.insert(drawState.currentStroke.points, {x=x, y=y})
+    if stroke then
+        table.insert(stroke.points, {x=x, y=y})
+        drawState.totalPoints += 1
     end
     lastX, lastY = x, y
 end
@@ -154,6 +217,14 @@ local function endStroke()
     end
 end
 
+local function countStrokePoints(strokes)
+    local n = 0
+    for _, s in ipairs(strokes) do
+        n += #(s.points or {})
+    end
+    return n
+end
+
 local function setupCanvas()
     local sg = PlayerGui:WaitForChild(Config.MAIN_GUI_NAME, 10)
     if not sg then return end
@@ -164,6 +235,27 @@ local function setupCanvas()
     if not (canvas and toolPanel) then return end
 
     drawState.canvas = canvas
+
+    -- Ensure palette readable + big enough (Studio place may already be sized).
+    toolPanel.Size = UDim2.new(0, math.max(toolPanel.Size.X.Offset, 150), 0, math.max(toolPanel.Size.Y.Offset, 560))
+    local undoBtn = toolPanel:FindFirstChild("UndoBtn")
+    if undoBtn and undoBtn:IsA("TextButton") then
+        undoBtn.Text = "< Undo"
+        undoBtn.TextSize = 16
+        undoBtn.Font = Enum.Font.GothamBold
+    end
+    local redoBtn = toolPanel:FindFirstChild("RedoBtn")
+    if redoBtn and redoBtn:IsA("TextButton") then
+        redoBtn.Text = "Redo >"
+        redoBtn.TextSize = 16
+        redoBtn.Font = Enum.Font.GothamBold
+    end
+    local clearBtn = toolPanel:FindFirstChild("ClearBtn")
+    if clearBtn and clearBtn:IsA("TextButton") then
+        clearBtn.Text = "Clear"
+        clearBtn.TextSize = 16
+        clearBtn.Font = Enum.Font.GothamBold
+    end
 
     for i = 1, #COLORS do
         local btn = toolPanel:FindFirstChild("ColorBtn_" .. i)
@@ -193,29 +285,31 @@ local function setupCanvas()
         end
     end
 
-    local undoBtn = toolPanel:FindFirstChild("UndoBtn")
     if undoBtn then
         undoBtn.MouseButton1Click:Connect(function()
             if #drawState.strokes > 0 then
-                table.insert(drawState.undoStack, table.remove(drawState.strokes))
+                local removed = table.remove(drawState.strokes)
+                table.insert(drawState.undoStack, removed)
+                drawState.totalPoints = countStrokePoints(drawState.strokes)
                 renderStrokes(canvas, serializeStrokes(drawState.strokes))
             end
         end)
     end
-    local redoBtn = toolPanel:FindFirstChild("RedoBtn")
     if redoBtn then
         redoBtn.MouseButton1Click:Connect(function()
             if #drawState.undoStack > 0 then
-                table.insert(drawState.strokes, table.remove(drawState.undoStack))
+                local restored = table.remove(drawState.undoStack)
+                table.insert(drawState.strokes, restored)
+                drawState.totalPoints = countStrokePoints(drawState.strokes)
                 renderStrokes(canvas, serializeStrokes(drawState.strokes))
             end
         end)
     end
-    local clearBtn = toolPanel:FindFirstChild("ClearBtn")
     if clearBtn then
         clearBtn.MouseButton1Click:Connect(function()
-            drawState.strokes   = {}
-            drawState.undoStack = {}
+            drawState.strokes     = {}
+            drawState.undoStack   = {}
+            drawState.totalPoints = 0
             clearCanvas(canvas)
         end)
     end
@@ -285,17 +379,17 @@ DrawActiveEvent.Event:Connect(function(active)
     drawState.undoStack     = {}
     drawState.submitted     = false
     drawState.activeTouchId = nil
+    drawState.totalPoints   = 0
     if drawState.canvas then clearCanvas(drawState.canvas) end
 end)
 
 RenderStrokesEvent.Event:Connect(function(canvas, strokeData)
     task.spawn(function()
-        task.wait(0.05)
-        local tw = canvas.AbsoluteSize.X
-        local th = canvas.AbsoluteSize.Y
-        if tw <= 0 then tw = canvas.Size.X.Offset end
-        if th <= 0 then th = canvas.Size.Y.Offset end
-        renderStrokes(canvas, strokeData, tw, th)
+        for _ = 1, 8 do
+            if canvas.AbsoluteSize.X > 4 and canvas.AbsoluteSize.Y > 4 then break end
+            task.wait(0.05)
+        end
+        renderStrokes(canvas, strokeData, canvas.AbsoluteSize.X, canvas.AbsoluteSize.Y)
     end)
 end)
 

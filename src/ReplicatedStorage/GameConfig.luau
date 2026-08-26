@@ -2,6 +2,10 @@ local GameConfig = {}
 
 GameConfig.QUEUE_SIZES = {3, 5}
 
+GameConfig.BUTTON_STOP_SPEED = 1
+GameConfig.BUTTON_PRESS_DEPTH = 0.45
+GameConfig.BUTTON_TWEEN_TIME = 0.05
+
 GameConfig.WRITE_TIME    = 30
 GameConfig.DRAW_TIME     = 60
 GameConfig.DESCRIBE_TIME = 15
@@ -13,4 +17,8 @@ GameConfig.MAIN_GUI_NAME = "DrawForSlotsGui"
 GameConfig.INTRO_ENABLED = true
 GameConfig.TESTING_GIVE_COINS = false
 GameConfig.TESTING_COINS_AMOUNT = 1000
+-- Empty = idle on podium. Fill with animation asset ids later.
+GameConfig.PODIUM_DANCE_1 = ""
+GameConfig.PODIUM_DANCE_2 = ""
+GameConfig.PODIUM_DANCE_3 = ""
 return GameConfig
