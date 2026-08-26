@@ -1,5 +1,6 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
 local UserInputService  = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
@@ -18,9 +19,9 @@ local CANVAS_W = Config.CANVAS_W
 local CANVAS_H = Config.CANVAS_H
 -- Keep stroke density low so clients do not freeze / disconnect mid-draw.
 local MIN_POINT_GAP = 4
-local MAX_STROKE_POINTS = 120
-local MAX_TOTAL_POINTS = 800
-local STAMP_CAP = 32
+local MAX_STROKE_POINTS = 200
+local MAX_TOTAL_POINTS = 1200
+local STAMP_CAP = 48
 
 local drawState = {
     active        = false,
@@ -187,6 +188,7 @@ local lastX, lastY = nil, nil
 
 local function beginStroke(x, y)
     if not drawState.active then return end
+    if drawState.isDrawing then return end
     if drawState.totalPoints >= MAX_TOTAL_POINTS then return end
     local canvas = drawState.canvas
     if not canvas then return end
@@ -206,18 +208,22 @@ end
 
 local function continueStroke(x, y)
     if not drawState.active or not drawState.isDrawing then return end
+    local stroke = drawState.currentStroke
+    if stroke and #stroke.points >= MAX_STROKE_POINTS then
+        endStroke()
+        if drawState.totalPoints >= MAX_TOTAL_POINTS then return end
+        beginStroke(x, y)
+        return
+    end
+    if drawState.totalPoints >= MAX_TOTAL_POINTS then
+        endStroke()
+        return
+    end
     if lastX then
         local dx, dy = x - lastX, y - lastY
         if dx * dx + dy * dy < MIN_POINT_GAP * MIN_POINT_GAP then
             return
         end
-    end
-    local stroke = drawState.currentStroke
-    if stroke and #stroke.points >= MAX_STROKE_POINTS then
-        return
-    end
-    if drawState.totalPoints >= MAX_TOTAL_POINTS then
-        return
     end
     local canvas = drawState.canvas
     if canvas and lastX then
@@ -377,17 +383,22 @@ local function setupCanvas()
         beginStroke(x, y)
     end)
 
-    UserInputService.InputChanged:Connect(function(input, processed)
-        if not drawState.active or not drawState.isDrawing then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-        local x, y = getCanvasPos(input.Position, canvas, true)
-        if not x then return end
-        continueStroke(x, y)
-    end)
-
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             endStroke()
+        end
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        if not drawState.active or drawState.activeTouchId then return end
+        if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then return end
+        local mouse = UserInputService:GetMouseLocation()
+        local x, y = getCanvasPos(Vector2.new(mouse.X, mouse.Y), canvas, true)
+        if not x then return end
+        if not drawState.isDrawing then
+            beginStroke(x, y)
+        else
+            continueStroke(x, y)
         end
     end)
 

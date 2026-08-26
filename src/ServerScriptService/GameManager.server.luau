@@ -4,7 +4,8 @@ local TeleportService   = game:GetService("TeleportService")
 
 local Config  = require(ReplicatedStorage:WaitForChild("GameConfig"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local GiveCoinsFunc = script.Parent:WaitForChild("CoinService"):WaitForChild("GiveCoinsFunc")
+local CoinService = script.Parent:WaitForChild("CoinService")
+local GiveCoinsFunc = CoinService:WaitForChild("GiveCoinsFunc")
 
 local GameStateChanged  = Remotes:WaitForChild("GameStateChanged")
 local SubmitText        = Remotes:WaitForChild("SubmitText")
@@ -222,11 +223,25 @@ for _, plr in ipairs(Players:GetPlayers()) do
     bindCharacter(plr)
 end
 
+local function buildQueueMemberData(list)
+    local members = {}
+    for _, p in ipairs(list) do
+        if p and p.Parent then
+            table.insert(members, {
+                userId = p.UserId,
+                name = p.Name,
+            })
+        end
+    end
+    return members
+end
+
 local function broadcastQueueLobby(size)
     local list = queueMembers[size]
+    local members = buildQueueMemberData(list)
     for _, plr in ipairs(list) do
         if plr and plr.Parent then
-            GameStateChanged:FireClient(plr, "lobby", #list, size)
+            GameStateChanged:FireClient(plr, "lobby", #list, size, members)
         end
     end
 end
@@ -332,7 +347,7 @@ runSession = function(playerList, playerCount)
             if typeof(strokeData) ~= "table" then return {} end
             local out = {}
             local total = 0
-            local maxPoints = 800
+            local maxPoints = 1200
             local maxX = Config.CANVAS_W
             local maxY = Config.CANVAS_H
             for _, stroke in ipairs(strokeData) do
