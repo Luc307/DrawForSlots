@@ -10,7 +10,7 @@ local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 local Config      = require(ReplicatedStorage:WaitForChild("GameConfig"))
 
 local ALL_FRAMES = {
-    "LobbyFrame", "WriteFrame", "DrawFrame", "ResultsFrame"
+    "LobbyFrame", "WriteFrame", "DrawFrame", "ReviewFrame", "ResultsFrame"
 }
 
 -- ============================================================

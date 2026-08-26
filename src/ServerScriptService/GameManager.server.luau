@@ -98,6 +98,17 @@ local function findSpawnCFrame()
     return best
 end
 
+local function findQueueSpawnerCFrame()
+    local lobby = workspace:FindFirstChild("Floating Lobby")
+    if not lobby then return nil end
+    local spawner = lobby:FindFirstChild("queueSpawner")
+    if not spawner then return nil end
+    if spawner:IsA("BasePart") then
+        return spawner.CFrame + Vector3.new(0, 3, 0)
+    end
+    return CFrame.new(spawner.Position + Vector3.new(0, 3, 0))
+end
+
 local function applyCharacterActive(char, active)
     if not char then return end
     if not collideCache[char] then
@@ -152,21 +163,32 @@ local function setPlayerInactive(plr, inactive)
     end
 end
 
-local function teleportToSpawn(plr)
+local function teleportCharacter(plr, targetCf)
     local char = plr.Character
     if not char then return end
     local root = char:FindFirstChild("HumanoidRootPart")
-    local spawnCf = findSpawnCFrame()
-    if not root or not spawnCf then return end
+    if not root or not targetCf then return end
     root.Anchored = false
-    root.CFrame = spawnCf
+    root.CFrame = targetCf
     root.AssemblyLinearVelocity = Vector3.zero
     root.AssemblyAngularVelocity = Vector3.zero
 end
 
-local function releasePlayer(plr)
+local function teleportToSpawn(plr)
+    teleportCharacter(plr, findSpawnCFrame())
+end
+
+local function teleportToQueueSpawner(plr)
+    teleportCharacter(plr, findQueueSpawnerCFrame())
+end
+
+local function releasePlayer(plr, toQueueSpawner)
     setPlayerInactive(plr, false)
-    teleportToSpawn(plr)
+    if toQueueSpawner then
+        teleportToQueueSpawner(plr)
+    else
+        teleportToSpawn(plr)
+    end
     -- Re-apply active after teleport so root stays unanchored at spawn.
     if plr.Character then
         applyCharacterActive(plr.Character, true)
@@ -221,7 +243,7 @@ local function leaveQueue(plr)
     end
     queuedSize[plr] = nil
     SetQueueState:FireClient(plr, false)
-    releasePlayer(plr)
+    releasePlayer(plr, true)
     broadcastQueueLobby(size)
 end
 
@@ -311,6 +333,8 @@ runSession = function(playerList, playerCount)
             local out = {}
             local total = 0
             local maxPoints = 800
+            local maxX = Config.CANVAS_W
+            local maxY = Config.CANVAS_H
             for _, stroke in ipairs(strokeData) do
                 if total >= maxPoints then break end
                 if typeof(stroke) ~= "table" or typeof(stroke.points) ~= "table" then
@@ -320,7 +344,10 @@ runSession = function(playerList, playerCount)
                 for _, pt in ipairs(stroke.points) do
                     if total >= maxPoints then break end
                     if typeof(pt) == "table" and typeof(pt.x) == "number" and typeof(pt.y) == "number" then
-                        table.insert(pts, { x = pt.x, y = pt.y })
+                        table.insert(pts, {
+                            x = math.clamp(pt.x, 0, maxX),
+                            y = math.clamp(pt.y, 0, maxY),
+                        })
                         total += 1
                     end
                 end
@@ -385,10 +412,20 @@ runSession = function(playerList, playerCount)
         for i, plr in ipairs(playerList) do
             local sub      = submissions[plr.UserId]
             local chainIdx = getChainIndex(i, round)
+            local content
+            if entryType == "drawing" then
+                content = (sub and typeof(sub.content) == "table") and sub.content or {}
+            else
+                if sub and typeof(sub.content) == "string" and sub.content ~= "" then
+                    content = sub.content
+                else
+                    content = "(no submission)"
+                end
+            end
             table.insert(chains[chainIdx].entries, {
                 type    = entryType,
                 author  = plr.Name,
-                content = sub and sub.content or "",
+                content = content,
             })
         end
     end
@@ -588,12 +625,7 @@ local function moveToLocalSpawner(plr, action)
     if not spawner then
         return
     end
-
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not (hrp and hrp:IsA("BasePart")) then
-        return
-    end
-    hrp.CFrame = spawner.CFrame * CFrame.new(0, 5, 0)
+    char:MoveTo(spawner.Position + Vector3.new(0, 3, 0))
 end
 
 local function activateButton(plr, action)

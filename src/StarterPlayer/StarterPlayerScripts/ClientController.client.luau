@@ -32,6 +32,12 @@ local introFrame   = screenGui:WaitForChild("IntroFrame")
 local introTitle   = introFrame:WaitForChild("TitleLabel")
 local introCommunity = introFrame:FindFirstChild("CommunityLabel")
 
+local CANVAS_W = Config.CANVAS_W
+local CANVAS_H = Config.CANVAS_H
+local REVIEW_LEFT = 0.40
+local REVIEW_GAP = 12
+local submitGen = 0
+
 print("[Draw for Slots] You are playing as: " .. LocalPlayer.Name)
 
 local function addCorner(p, r)
@@ -314,6 +320,9 @@ end
 
 local function handleWrite(timeLimit)
     showFrame(writeFrame)
+    submitGen += 1
+    local gen = submitGen
+    local waitTime = timeLimit or Config.WRITE_TIME
 
     local wfHdr = writeFrame:FindFirstChildOfClass("Frame")
     if wfHdr then
@@ -346,28 +355,42 @@ local function handleWrite(timeLimit)
     local textBox   = writeFrame:FindFirstChild("TextInputBox")
     local submitted = false
 
+    local function sendWrite()
+        if submitted or gen ~= submitGen then return end
+        submitted = true
+        local inputTxt = textBox and textBox.Text ~= "" and textBox.Text
+        local txt = inputTxt
+        if not txt then
+            local ok, fallback = pcall(function()
+                return GetFallbackText:InvokeServer()
+            end)
+            txt = (ok and fallback) or "A surprise drawing"
+        end
+        SubmitText:FireServer(txt)
+        if submitBtn then
+            submitBtn.BackgroundColor3 = Color3.fromRGB(80, 130, 80)
+            submitBtn.Text = "Submitted!"
+        end
+    end
+
     if textBox then textBox.Text = "" ; textBox:CaptureFocus() end
     if submitBtn then
         submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
         submitBtn.Text = "Submit"
         local conn
         conn = submitBtn.MouseButton1Click:Connect(function()
-            if submitted then return end
-            submitted = true
-            conn:Disconnect()
-            local inputTxt = textBox and textBox.Text ~= "" and textBox.Text
-            local txt = inputTxt or GetFallbackText:InvokeServer()
-            SubmitText:FireServer(txt)
-            submitBtn.BackgroundColor3 = Color3.fromRGB(80, 130, 80)
-            submitBtn.Text = "Submitted!"
+            if conn then conn:Disconnect() end
+            sendWrite()
         end)
     end
+    task.delay(math.max(0.2, waitTime - 0.35), sendWrite)
 end
 
 local function handleDraw(timeLimit, roundData)
     showFrame(drawFrame)
     local pl = drawFrame:FindFirstChild("PromptLabel", true)
     if pl then
+        pl.TextWrapped = true
         pl.Text = (roundData and roundData.content)
                   and ("Draw: \"" .. tostring(roundData.content) .. "\"")
                   or  "Waiting for prompt..."
@@ -383,21 +406,45 @@ local function handleDraw(timeLimit, roundData)
     end
 end
 
+local function fireStrokes(canvas, content)
+    if not canvas or type(content) ~= "table" then return end
+    local signals = ReplicatedStorage:FindFirstChild("Signals")
+    local renderEv = signals and signals:FindFirstChild("RenderStrokesEvent")
+    if not renderEv then return end
+    task.spawn(function()
+        for _ = 1, 12 do
+            if canvas.AbsoluteSize.X > 4 and canvas.AbsoluteSize.Y > 4 then break end
+            task.wait(0.05)
+        end
+        renderEv:Fire(canvas, content)
+    end)
+end
+
 local function handleDescribe(timeLimit, roundData)
     showFrame(writeFrame)
+    submitGen += 1
+    local gen = submitGen
+    local waitTime = timeLimit or Config.DESCRIBE_TIME
+
+    if writeFrame.AbsoluteSize.X <= 1 then
+        task.wait()
+    end
 
     local pl = writeFrame:FindFirstChild("PromptLabel", true)
-    if pl then pl.Text = "Describe this image:" end
+    if pl then
+        pl.Text = "Describe this image:"
+        pl.TextWrapped = true
+    end
 
-    local CANVAS_ASPECT = 540 / 410
+    local CANVAS_ASPECT = CANVAS_W / CANVAS_H
     local screenH = writeFrame.AbsoluteSize.Y
     if screenH <= 0 then screenH = 600 end
     local screenW = writeFrame.AbsoluteSize.X
     if screenW <= 0 then screenW = 800 end
 
-    local marginX = math.floor(screenW * 0.08)
-    local marginY = math.floor(screenH * 0.08)
-        local gap = math.max(22, math.floor(screenH * 0.028))
+    local marginX = math.floor(screenW * 0.12)
+    local marginY = math.floor(screenH * 0.07)
+    local gap = math.max(18, math.floor(screenH * 0.024))
     local hdrH = 44
     local textH = math.max(56, math.floor(screenH * 0.07))
     local btnH = math.max(48, math.floor(screenH * 0.06))
@@ -405,7 +452,7 @@ local function handleDescribe(timeLimit, roundData)
     local maxImgW = screenW - marginX * 2
     local usedH = hdrH + gap + textH + gap + btnH
     local maxImgH = screenH - marginY * 2 - usedH
-    maxImgH = math.min(maxImgH, math.floor(screenH * 0.48))
+    maxImgH = math.min(maxImgH, math.floor(screenH * 0.52))
 
     local imgH = maxImgH
     local imgW = math.floor(imgH * CANVAS_ASPECT)
@@ -415,7 +462,7 @@ local function handleDescribe(timeLimit, roundData)
     end
 
     local stackH = hdrH + gap + imgH + gap + textH + gap + btnH
-    local stackTop = math.floor((screenH - stackH) * 0.42)
+    local stackTop = math.floor((screenH - stackH) * 0.5)
     stackTop = math.max(marginY, stackTop)
 
     local wfHdr = writeFrame:FindFirstChildOfClass("Frame")
@@ -423,6 +470,7 @@ local function handleDescribe(timeLimit, roundData)
         wfHdr.Size        = UDim2.new(0, imgW, 0, hdrH)
         wfHdr.AnchorPoint = Vector2.new(0.5, 0)
         wfHdr.Position    = UDim2.new(0.5, 0, 0, stackTop)
+        wfHdr.ClipsDescendants = true
     end
 
     local ip = writeFrame:FindFirstChild("ImagePreview")
@@ -432,20 +480,28 @@ local function handleDescribe(timeLimit, roundData)
         ip.AnchorPoint = Vector2.new(0.5, 0)
         ip.Position    = UDim2.new(0.5, 0, 0, stackTop + hdrH + gap)
         ip.ClipsDescendants = true
+        ip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         ip.ZIndex = 3
-        for _, c in ipairs(ip:GetChildren()) do
-            if c:IsA("Frame") and (c.Name == "Dot" or c.Name == "Seg") then c:Destroy() end
+        local ar = ip:FindFirstChildOfClass("UIAspectRatioConstraint")
+        if not ar then
+            ar = Instance.new("UIAspectRatioConstraint")
+            ar.Parent = ip
         end
-        if roundData and roundData.content then
-            local signals = ReplicatedStorage:FindFirstChild("Signals")
-            local renderEv = signals and signals:FindFirstChild("RenderStrokesEvent")
-            if renderEv then
-                task.spawn(function()
-                    task.wait(0.1)
-                    renderEv:Fire(ip, roundData.content)
-                end)
+        ar.AspectRatio = CANVAS_ASPECT
+        for _, c in ipairs(ip:GetChildren()) do
+            if c:IsA("Frame") and (c.Name == "Dot" or c.Name == "Seg" or c.Name == "StrokeLayer") then
+                c:Destroy()
             end
         end
+        local border = ip:FindFirstChild("PreviewStroke")
+        if not border then
+            border = Instance.new("UIStroke")
+            border.Name = "PreviewStroke"
+            border.Color = Color3.fromRGB(40, 30, 80)
+            border.Thickness = 2
+            border.Parent = ip
+        end
+        fireStrokes(ip, roundData and roundData.content)
     end
 
     local yText = stackTop + hdrH + gap + imgH + gap
@@ -457,6 +513,7 @@ local function handleDescribe(timeLimit, roundData)
         tb2.Position        = UDim2.new(0.5, 0, 0, yText)
         tb2.PlaceholderText = "Describe the image..."
         tb2.TextXAlignment  = Enum.TextXAlignment.Center
+        tb2.TextWrapped     = true
     end
 
     local submitBtn = writeFrame:FindFirstChild("SubmitButton")
@@ -469,22 +526,31 @@ local function handleDescribe(timeLimit, roundData)
     local textBox  = writeFrame:FindFirstChild("TextInputBox")
     local submitted = false
 
+    local function sendDescribe()
+        if submitted or gen ~= submitGen then return end
+        submitted = true
+        local txt = (textBox and textBox.Text ~= "") and textBox.Text
+            or "Jokes on me: I was too silly to write anything!"
+        SubmitText:FireServer(txt)
+        if submitBtn then
+            submitBtn.BackgroundColor3 = Color3.fromRGB(80, 130, 80)
+            submitBtn.Text = "Submitted!"
+        end
+    end
+
     if textBox then textBox.Text = ""; textBox:CaptureFocus() end
     if submitBtn then
         submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
         submitBtn.Text = "Submit"
         local conn
         conn = submitBtn.MouseButton1Click:Connect(function()
-            if submitted then return end
-            submitted = true
-            conn:Disconnect()
-            local txt = (textBox and textBox.Text ~= "") and textBox.Text or "Jokes on me: I was too silly to write anything!"
-            SubmitText:FireServer(txt)
-            submitBtn.BackgroundColor3 = Color3.fromRGB(80, 130, 80)
-            submitBtn.Text = "Submitted!"
+            if conn then conn:Disconnect() end
+            sendDescribe()
         end)
     end
+    task.delay(math.max(0.2, waitTime - 0.35), sendDescribe)
 end
+
 local function showChainInMainWindow(chain, mainWindow)
     if not mainWindow then return end
     for _, c in ipairs(mainWindow:GetChildren()) do
@@ -495,25 +561,34 @@ local function showChainInMainWindow(chain, mainWindow)
         albumTitle.Text = chain.startPlayerName:upper() .. "'S ALBUM"
         albumTitle.TextSize = 22
         albumTitle.TextColor3 = Color3.fromRGB(255, 220, 80)
-        albumTitle.Size = UDim2.new(1, -24, 0, 40)
-        albumTitle.Position = UDim2.new(0, 12, 0, 8)
+        albumTitle.Size = UDim2.new(1, -32, 0, 42)
+        albumTitle.Position = UDim2.new(0, 16, 0, 10)
+        albumTitle.TextXAlignment = Enum.TextXAlignment.Left
+        albumTitle.TextTruncate = Enum.TextTruncate.AtEnd
     end
 
-    local CANVAS_W = 540
-    local CANVAS_H = 410
-    local ASPECT   = CANVAS_W / CANVAS_H
-    local yOffset  = 56
+    local ASPECT  = CANVAS_W / CANVAS_H
+    local yOffset = 60
+
+    local mwW = mainWindow.AbsoluteSize.X
+    if mwW <= 1 then mwW = 700 end
 
     for _, entry in ipairs(chain.entries) do
         local isDrawing = (entry.type == "drawing")
-
-        local mwW = mainWindow.AbsoluteSize.X
-        if mwW <= 0 then mwW = 700 end
+        local textBody = ""
+        if not isDrawing then
+            if type(entry.content) == "string" and entry.content ~= "" then
+                textBody = entry.content
+            else
+                textBody = "(no submission)"
+            end
+        end
 
         local imgW, imgH = 0, 0
         if isDrawing then
-            local maxW = mwW - 48
-            local maxH = 340
+            local maxW = math.max(120, mwW - 56)
+            local maxH = math.min(420, math.floor(mainWindow.AbsoluteSize.Y * 0.55))
+            if maxH < 160 then maxH = 280 end
             imgW = maxW
             imgH = math.floor(imgW / ASPECT)
             if imgH > maxH then
@@ -522,30 +597,36 @@ local function showChainInMainWindow(chain, mainWindow)
             end
         end
 
-        local itemH = isDrawing and (imgH + 52) or 96
+        local textH = 88
+        if not isDrawing then
+            local extra = math.ceil(#textBody / 42) * 22
+            textH = math.clamp(64 + extra, 88, 180)
+        end
+        local itemH = isDrawing and (imgH + 56) or textH
 
         local item = Instance.new("Frame")
         item.Name              = "EntryItem"
-        item.Size              = UDim2.new(1, -28, 0, itemH)
-        item.Position          = UDim2.new(0, 14, 0, yOffset)
-        item.BackgroundColor3  = Color3.fromRGB(72, 52, 140)
+        item.Size              = UDim2.new(1, -32, 0, itemH)
+        item.Position          = UDim2.new(0, 16, 0, yOffset)
+        item.BackgroundColor3  = Color3.fromRGB(68, 48, 128)
         item.BorderSizePixel   = 0
         item.Parent            = mainWindow
-        addCorner(item, 10)
+        addCorner(item, 12)
         local iStroke = Instance.new("UIStroke")
-        iStroke.Color        = Color3.fromRGB(190, 160, 255)
-        iStroke.Thickness    = 2
+        iStroke.Color        = Color3.fromRGB(170, 140, 240)
+        iStroke.Thickness    = 1.5
         iStroke.Parent       = item
 
         local auth = Instance.new("TextLabel")
-        auth.Size              = UDim2.new(1,-20,0,28)
-        auth.Position          = UDim2.new(0,12,0,6)
+        auth.Size              = UDim2.new(1, -24, 0, 28)
+        auth.Position          = UDim2.new(0, 12, 0, 6)
         auth.BackgroundTransparency = 1
         auth.TextColor3        = Color3.fromRGB(230, 210, 255)
-        auth.Text              = entry.author
+        auth.Text              = tostring(entry.author or "")
         auth.Font              = Enum.Font.GothamBold
-        auth.TextSize          = 18
-        auth.TextXAlignment    = Enum.TextXAlignment.Center
+        auth.TextSize          = 16
+        auth.TextXAlignment    = Enum.TextXAlignment.Left
+        auth.TextTruncate      = Enum.TextTruncate.AtEnd
         auth.Parent            = item
 
         if isDrawing then
@@ -553,45 +634,39 @@ local function showChainInMainWindow(chain, mainWindow)
             dc.Name             = "DrawPreview"
             dc.Size             = UDim2.new(0, imgW, 0, imgH)
             dc.AnchorPoint      = Vector2.new(0.5, 0)
-            dc.Position         = UDim2.new(0.5, 0, 0, 36)
-            dc.BackgroundColor3 = Color3.fromRGB(255,255,255)
+            dc.Position         = UDim2.new(0.5, 0, 0, 38)
+            dc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
             dc.BorderSizePixel  = 0
             dc.ClipsDescendants = true
             dc.Parent           = item
-            addCorner(dc, 6)
-            if entry.content then
-                local signals = ReplicatedStorage:FindFirstChild("Signals")
-                local re = signals and signals:FindFirstChild("RenderStrokesEvent")
-                if re then
-                    task.spawn(function()
-                        task.wait(0.1)
-                        re:Fire(dc, entry.content)
-                    end)
-                end
+            addCorner(dc, 8)
+            if type(entry.content) == "table" then
+                fireStrokes(dc, entry.content)
             end
         else
             local tl = Instance.new("TextLabel")
-            tl.Size              = UDim2.new(1,-24,1,-40)
-            tl.Position          = UDim2.new(0,12,0,36)
+            tl.Size              = UDim2.new(1, -24, 1, -42)
+            tl.Position          = UDim2.new(0, 12, 0, 34)
             tl.BackgroundTransparency = 1
-            tl.TextColor3        = Color3.fromRGB(255,255,255)
-            tl.Text              = tostring(entry.content)
-            tl.Font              = Enum.Font.GothamBold
-            tl.TextSize          = 22
-            tl.TextXAlignment    = Enum.TextXAlignment.Center
-            tl.TextYAlignment    = Enum.TextYAlignment.Center
+            tl.TextColor3        = Color3.fromRGB(255, 255, 255)
+            tl.Text              = textBody
+            tl.Font              = Enum.Font.GothamMedium
+            tl.TextSize          = 20
+            tl.TextXAlignment    = Enum.TextXAlignment.Left
+            tl.TextYAlignment    = Enum.TextYAlignment.Top
             tl.TextWrapped       = true
             tl.Parent            = item
         end
 
-        yOffset = yOffset + itemH + 14
+        yOffset = yOffset + itemH + 12
     end
 
     if mainWindow:IsA("ScrollingFrame") then
-        mainWindow.CanvasSize = UDim2.new(0,0,0,yOffset+24)
+        mainWindow.CanvasSize = UDim2.new(0, 0, 0, yOffset + 20)
         mainWindow.ScrollBarThickness = 8
-        mainWindow.BackgroundColor3 = Color3.fromRGB(48, 34, 95)
-        mainWindow.BackgroundTransparency = 0.15
+        mainWindow.BackgroundColor3 = Color3.fromRGB(42, 30, 82)
+        mainWindow.BackgroundTransparency = 0
+        mainWindow.ClipsDescendants = true
     end
 end
 
@@ -682,8 +757,9 @@ local function buildRankingPanel(rankingPanel, playerNames)
             local nl = Instance.new("TextLabel")
             nl.Size = UDim2.new(1,-86,1,0); nl.Position = UDim2.new(0,38,0,0)
             nl.BackgroundTransparency = 1; nl.TextColor3 = Color3.fromRGB(255,255,255)
-            nl.Text = name; nl.Font = Enum.Font.Gotham; nl.TextSize = 14
-            nl.TextXAlignment = Enum.TextXAlignment.Left; nl.Parent = row
+            nl.Text = name; nl.Font = Enum.Font.Gotham; nl.TextSize = 15
+            nl.TextXAlignment = Enum.TextXAlignment.Left
+            nl.TextTruncate = Enum.TextTruncate.AtEnd; nl.Parent = row
 
             local as = Instance.new("Frame")
             as.Size = UDim2.new(0,32,1,-10); as.AnchorPoint = Vector2.new(1,0.5)
@@ -791,6 +867,8 @@ end
 
 local function handleReview(reviewData, playerNames, totalTime)
     showFrame(reviewFrame)
+    reviewFrame.BackgroundColor3 = Color3.fromRGB(18, 12, 42)
+    reviewFrame.BackgroundTransparency = 0
 
     local TOP_SAFE = 72
     local leftPanel    = reviewFrame:FindFirstChild("LeftPanel")
@@ -800,9 +878,9 @@ local function handleReview(reviewData, playerNames, totalTime)
 
     if leftPanel then
         leftPanel.ClipsDescendants = false
-        leftPanel.Size = UDim2.new(0, 320, 1, 0)
+        leftPanel.Size = UDim2.new(REVIEW_LEFT, -REVIEW_GAP * 0.5, 1, 0)
         leftPanel.Position = UDim2.new(0, 0, 0, 0)
-        leftPanel.BackgroundColor3 = Color3.fromRGB(62, 44, 118)
+        leftPanel.BackgroundColor3 = Color3.fromRGB(56, 40, 108)
         leftPanel.BackgroundTransparency = 0
 
         local header = nil
@@ -833,10 +911,12 @@ local function handleReview(reviewData, playerNames, totalTime)
     end
 
     if mainWindow then
-        mainWindow.AnchorPoint = Vector2.new(1, 0)
-        mainWindow.Position = UDim2.new(1, -20, 0, 8)
-        mainWindow.Size = UDim2.new(0.52, 0, 1, -16)
+        mainWindow.AnchorPoint = Vector2.new(0, 0)
+        mainWindow.Position = UDim2.new(REVIEW_LEFT, REVIEW_GAP * 0.5, 0, 8)
+        mainWindow.Size = UDim2.new(1 - REVIEW_LEFT, -REVIEW_GAP * 0.5 - 10, 1, -16)
         mainWindow.ClipsDescendants = true
+        mainWindow.BackgroundColor3 = Color3.fromRGB(42, 30, 82)
+        mainWindow.BackgroundTransparency = 0
     end
 
     if playersPanel and playersPanel:IsA("ScrollingFrame") then
@@ -938,6 +1018,7 @@ local function handleReview(reviewData, playerNames, totalTime)
         nl.Font              = Enum.Font.GothamBold
         nl.TextSize          = 16
         nl.TextXAlignment    = Enum.TextXAlignment.Left
+        nl.TextTruncate      = Enum.TextTruncate.AtEnd
         nl.Parent            = tile
 
         local capturedChain = chain
@@ -948,7 +1029,7 @@ local function handleReview(reviewData, playerNames, totalTime)
     end
 
     local tileCount = #reviewData
-    local ppH = math.min(200, tileCount * (TILE_H + 6) + 12)
+    local ppH = math.min(240, tileCount * (TILE_H + 6) + 12)
     if playersPanel:IsA("ScrollingFrame") then
         playersPanel.Size = UDim2.new(1, -6, 0, ppH)
         playersPanel.CanvasSize = UDim2.new(0, 0, 0, tileCount * (TILE_H + 6) + 12)
@@ -967,7 +1048,7 @@ local function handleReview(reviewData, playerNames, totalTime)
         timer.Size = UDim2.new(1, -16, 0, 38)
     end
 
-    task.delay(0.2, function()
+    task.delay(0.25, function()
         local ft = playersPanel:FindFirstChild("ChainTile_1")
         if ft and reviewData[1] then
             selectTile(ft, reviewData[1])
@@ -1027,28 +1108,28 @@ local function attachNameBillboard(model, text, accent)
     if not head then return end
     local bb = Instance.new("BillboardGui")
     bb.Name = "PodiumName"
-    bb.Size = UDim2.new(0, 160, 0, 44)
-    bb.StudsOffset = Vector3.new(0, 2.4, 0)
+    bb.Size = UDim2.new(0, 220, 0, 64)
+    bb.StudsOffset = Vector3.new(0, 3.1, 0)
     bb.AlwaysOnTop = true
     bb.Parent = head
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0.6, 0)
+    lbl.Size = UDim2.new(1, 0, 0.58, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
     lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 16
+    lbl.TextSize = 20
     lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-    lbl.TextStrokeTransparency = 0.4
+    lbl.TextStrokeTransparency = 0.3
     lbl.Parent = bb
     local coins = Instance.new("TextLabel")
     coins.Name = "CoinLine"
-    coins.Size = UDim2.new(1, 0, 0.45, 0)
-    coins.Position = UDim2.new(0, 0, 0.55, 0)
+    coins.Size = UDim2.new(1, 0, 0.42, 0)
+    coins.Position = UDim2.new(0, 0, 0.58, 0)
     coins.BackgroundTransparency = 1
     coins.Font = Enum.Font.GothamBold
-    coins.TextSize = 13
+    coins.TextSize = 16
     coins.TextColor3 = accent
-    coins.TextStrokeTransparency = 0.4
+    coins.TextStrokeTransparency = 0.3
     coins.Parent = bb
     return coins
 end
@@ -1060,9 +1141,9 @@ local function handleResults(results)
 
     for _, c in ipairs(listFrame:GetChildren()) do c:Destroy() end
 
-    listFrame.AnchorPoint = Vector2.new(0.5, 0)
-    listFrame.Position = UDim2.new(0.5, 0, 0, 68)
-    listFrame.Size = UDim2.new(1, -48, 1, -140)
+    listFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    listFrame.Position = UDim2.new(0.5, 0, 0.48, 0)
+    listFrame.Size = UDim2.new(0.94, 0, 0.84, 0)
     listFrame.BackgroundTransparency = 1
     listFrame.ClipsDescendants = false
 
@@ -1085,9 +1166,9 @@ local function handleResults(results)
 
     local vp = Instance.new("ViewportFrame")
     vp.Name = "PodiumScene"
-    vp.AnchorPoint = Vector2.new(0.5, 0)
-    vp.Position = UDim2.new(0.5, 0, 0, 0)
-    vp.Size = UDim2.new(0.7, 0, 0.78, 0)
+    vp.AnchorPoint = Vector2.new(0.5, 0.5)
+    vp.Position = UDim2.new(0.5, 0, 0.46, 0)
+    vp.Size = UDim2.new(0.96, 0, 0.92, 0)
     vp.BackgroundTransparency = 1
     vp.BorderSizePixel = 0
     vp.Ambient = Color3.fromRGB(170, 170, 200)
@@ -1099,18 +1180,18 @@ local function handleResults(results)
     local world = Instance.new("WorldModel")
     world.Parent = vp
     local cam = Instance.new("Camera")
-    cam.CFrame = CFrame.lookAt(Vector3.new(0, 8.2, 18), Vector3.new(0, 3.2, 0))
+    cam.CFrame = CFrame.lookAt(Vector3.new(0, 7.4, 14.5), Vector3.new(0, 3.6, 0))
     cam.Parent = vp
     vp.CurrentCamera = cam
 
     -- 1 center, 2 left, 3 right. Heights so characters stand on top.
     local blocks = {
-        [1] = { x = 0,    h = 4.6, color = COL[1].bg },
-        [2] = { x = -4.6, h = 3.2, color = COL[2].bg },
-        [3] = { x = 4.6,  h = 2.2, color = COL[3].bg },
+        [1] = { x = 0,    h = 5.4, color = COL[1].bg },
+        [2] = { x = -5.6, h = 3.8, color = COL[2].bg },
+        [3] = { x = 5.6,  h = 2.6, color = COL[3].bg },
     }
     for place, spec in pairs(blocks) do
-        local part = makePodiumPart(world, Vector3.new(3.6, spec.h, 3.6), CFrame.new(spec.x, spec.h * 0.5, 0), spec.color)
+        local part = makePodiumPart(world, Vector3.new(4.4, spec.h, 4.4), CFrame.new(spec.x, spec.h * 0.5, 0), spec.color)
         local face = Instance.new("SurfaceGui")
         face.Face = Enum.NormalId.Front
         face.Parent = part
@@ -1145,7 +1226,7 @@ local function handleResults(results)
                 hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
                 playPodiumAnim(hum, DANCE[place])
             end
-            local coinLbl = attachNameBillboard(model, entry.name, COL[place].glow)
+            local coinLbl = attachNameBillboard(model, "#" .. place .. " " .. entry.name, COL[place].glow)
             if coinLbl then
                 coinLbl.Text = "+" .. tostring(entry.reward) .. " Coins"
             end
@@ -1153,13 +1234,13 @@ local function handleResults(results)
     end)
 
     local function makeSideCard(entry, place, side)
-        local TILE_W, TILE_H = 168, 58
+        local TILE_W, TILE_H = 210, 64
         local tile = Instance.new("Frame")
         tile.Size = UDim2.new(0, TILE_W, 0, TILE_H)
         tile.AnchorPoint = side == "left" and Vector2.new(0, 0) or Vector2.new(1, 0)
         tile.Position = side == "left"
-            and UDim2.new(0, 12, 0.82, 0)
-            or  UDim2.new(1, -12, 0.82, 0)
+            and UDim2.new(0, 16, 0.86, 0)
+            or  UDim2.new(1, -16, 0.86, 0)
         tile.BackgroundColor3 = Color3.fromRGB(40, 24, 90)
         tile.BorderSizePixel = 0
         tile.ZIndex = 5
@@ -1170,48 +1251,39 @@ local function handleResults(results)
         ts.Thickness = 1.5
         ts.Parent = tile
 
-        local plL = Instance.new("TextLabel")
-        plL.Size = UDim2.new(0, 28, 1, 0)
-        plL.BackgroundTransparency = 1
-        plL.TextColor3 = Color3.fromRGB(220, 160, 255)
-        plL.Text = tostring(place) .. "."
-        plL.Font = Enum.Font.GothamBold
-        plL.TextSize = 14
-        plL.Parent = tile
-
         local avS = Instance.new("ImageLabel")
-        avS.Size = UDim2.new(0, 36, 0, 36)
+        avS.Size = UDim2.new(0, 40, 0, 40)
         avS.AnchorPoint = Vector2.new(0, 0.5)
-        avS.Position = UDim2.new(0, 30, 0.5, 0)
+        avS.Position = UDim2.new(0, 10, 0.5, 0)
         avS.BackgroundColor3 = Color3.fromRGB(50, 30, 100)
         avS.BorderSizePixel = 0
         avS.Parent = tile
-        addCorner(avS, 18)
+        addCorner(avS, 20)
         task.spawn(function()
             local ok, uid = pcall(function() return Players:GetUserIdFromNameAsync(entry.name) end)
             if ok and uid then loadAvatar(avS, uid) end
         end)
 
         local nL = Instance.new("TextLabel")
-        nL.Size = UDim2.new(1, -74, 0, 22)
-        nL.Position = UDim2.new(0, 70, 0, 6)
+        nL.Size = UDim2.new(1, -62, 0, 24)
+        nL.Position = UDim2.new(0, 56, 0, 6)
         nL.BackgroundTransparency = 1
         nL.TextColor3 = Color3.fromRGB(245, 235, 255)
-        nL.Text = entry.name
+        nL.Text = "#" .. place .. " " .. entry.name
         nL.Font = Enum.Font.GothamBold
-        nL.TextSize = 13
+        nL.TextSize = 14
         nL.TextXAlignment = Enum.TextXAlignment.Left
         nL.TextTruncate = Enum.TextTruncate.AtEnd
         nL.Parent = tile
 
         local cL = Instance.new("TextLabel")
-        cL.Size = UDim2.new(1, -74, 0, 18)
-        cL.Position = UDim2.new(0, 70, 0, 30)
+        cL.Size = UDim2.new(1, -62, 0, 20)
+        cL.Position = UDim2.new(0, 56, 0, 32)
         cL.BackgroundTransparency = 1
         cL.TextColor3 = Color3.fromRGB(255, 210, 70)
         cL.Text = "+" .. tostring(entry.reward) .. " Coins"
-        cL.Font = Enum.Font.Gotham
-        cL.TextSize = 12
+        cL.Font = Enum.Font.GothamBold
+        cL.TextSize = 13
         cL.TextXAlignment = Enum.TextXAlignment.Left
         cL.Parent = tile
     end
@@ -1284,17 +1356,26 @@ local function handleResults(results)
         returnBtn.Text = "Back to Lobby"
     end
 end
+local lastPhaseTime = nil
+
 GameStateChanged.OnClientEvent:Connect(function(phase, arg1, arg2)
+    lastPhaseTime = arg1
     if     phase == "lobby"    then handleLobby(arg1, arg2)
     elseif phase == "write"    then handleWrite(arg1)
     elseif phase == "draw"     then
         showFrame(drawFrame)
         local pl = drawFrame:FindFirstChild("PromptLabel", true)
-        if pl then pl.Text = "Waiting for prompt..." end
+        if pl then
+            pl.Text = "Waiting for prompt..."
+            pl.TextWrapped = true
+        end
     elseif phase == "describe" then
         showFrame(writeFrame)
         local pl = writeFrame:FindFirstChild("PromptLabel", true)
-        if pl then pl.Text = "Waiting for image..." end
+        if pl then
+            pl.Text = "Waiting for image..."
+            pl.TextWrapped = true
+        end
     elseif phase == "review"   then showFrame(reviewFrame)
     elseif phase == "results"  then showFrame(resultsFrame)
     end
@@ -1302,9 +1383,9 @@ end)
 
 SendRoundData.OnClientEvent:Connect(function(roundData)
     local phase = roundData and roundData.phase
-    if     phase == "write"    then handleWrite(nil)
-    elseif phase == "draw"     then handleDraw(nil, roundData)
-    elseif phase == "describe" then handleDescribe(nil, roundData)
+    if     phase == "write"    then handleWrite(lastPhaseTime or Config.WRITE_TIME)
+    elseif phase == "draw"     then handleDraw(lastPhaseTime or Config.DRAW_TIME, roundData)
+    elseif phase == "describe" then handleDescribe(lastPhaseTime or Config.DESCRIBE_TIME, roundData)
     end
 end)
 
