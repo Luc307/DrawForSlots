@@ -440,6 +440,7 @@ runSession = function(playerList, playerCount)
             table.insert(chains[chainIdx].entries, {
                 type    = entryType,
                 author  = plr.Name,
+                authorUserId = plr.UserId,
                 content = content,
             })
         end
@@ -492,21 +493,25 @@ runSession = function(playerList, playerCount)
     for i, chain in ipairs(chains) do
         reviewData[i] = {
             startPlayerName = chain.startPlayer.Name,
+            startPlayerUserId = chain.startPlayer.UserId,
             entries         = chain.entries,
         }
     end
 
     local playerNames = {}
     for _, plr in ipairs(playerList) do
-        table.insert(playerNames, plr.Name)
+        table.insert(playerNames, {
+            name = plr.Name,
+            userId = plr.UserId,
+        })
     end
 
         broadcast(GameStateChanged, "review", reviewTime)
     for _, plr in ipairs(playerList) do
         local othersForPlr = {}
-        for _, name in ipairs(playerNames) do
-            if name ~= plr.Name then
-                table.insert(othersForPlr, name)
+        for _, info in ipairs(playerNames) do
+            if info.name ~= plr.Name then
+                table.insert(othersForPlr, info)
             end
         end
         SendReviewData:FireClient(plr, reviewData, othersForPlr, reviewTime)
@@ -551,9 +556,17 @@ runSession = function(playerList, playerCount)
 
     local results = {}
     for rank, entry in ipairs(sorted) do
+        local uid = nil
+        for _, plr in ipairs(playerList) do
+            if plr.Name == entry.name then
+                uid = plr.UserId
+                break
+            end
+        end
         table.insert(results, {
             rank   = rank,
             name   = entry.name,
+            userId = uid,
             score  = entry.score,
             reward = Config.REWARDS[rank] or 0,
         })

@@ -162,7 +162,7 @@ do
 		stage.AnchorPoint = Vector2.new(0.5, 0.5)
 		stage.Position = UDim2.new(0.5, 0, 0.43, 0)
 		stage.Size = UDim2.new(0.4, 0, 0.53, 0)
-		stage.BackgroundColor3 = Color3.fromRGB(28, 42, 82)
+		stage.BackgroundColor3 = Color3.fromRGB(45, 48, 55)
 		stage.BorderSizePixel = 0
 		stage.ClipsDescendants = true
 		stage.ZIndex = 10
@@ -176,18 +176,6 @@ do
 		disc.BackgroundTransparency = 1
 		disc.ZIndex = 11
 		disc.Parent = stage
-		local pointer = Instance.new("TextLabel")
-		pointer.Name = "Pointer"
-		pointer.BackgroundTransparency = 1
-		pointer.Size = UDim2.new(0.08, 0, 0.055, 0)
-		pointer.Position = UDim2.new(0.5, 0, 0.16, 0)
-		pointer.AnchorPoint = Vector2.new(0.5, 1)
-		pointer.Text = "V"
-		pointer.Font = Enum.Font.GothamBlack
-		pointer.TextScaled = true
-		pointer.TextColor3 = Color3.fromRGB(255, 196, 70)
-		pointer.ZIndex = 30
-		pointer.Parent = wheelPage
 		local betRow = Instance.new("Frame")
 		betRow.Name = "BetRow"
 		betRow.Size = UDim2.new(0.34, 0, 0.15, 0)
@@ -230,14 +218,15 @@ do
 		resultBg.Size = UDim2.new(0.22, 0, 0.15, 0)
 		resultBg.Position = UDim2.new(0.96, 0, 0.85, 0)
 		resultBg.AnchorPoint = Vector2.new(1, 0.5)
-		resultBg.BackgroundColor3 = Color3.fromRGB(28, 42, 82)
+		resultBg.BackgroundColor3 = Color3.fromRGB(12, 18, 40)
 		resultBg.Visible = false
 		resultBg.ZIndex = 25
 		resultBg.Parent = wheelPage
 		local rc = Instance.new("UICorner")
 		rc.CornerRadius = UDim.new(0, 12)
 		rc.Parent = resultBg
-		makeLabel(resultBg, "ResultLbl", "", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
+		makeLabel(resultBg, "CoinsLbl", "", UDim2.fromScale(1, 0.5), UDim2.fromScale(0, 0))
+		makeLabel(resultBg, "MultLbl", "", UDim2.fromScale(1, 0.4), UDim2.fromScale(0, 0.55))
 	end
 	-- Clean stale hand-built caption that overlaps MinusBtn on pre-existing ShopGui
 	local betRowWheel = wheelPage:FindFirstChild("BetRow")
@@ -486,6 +475,10 @@ local styleSubtext = CasinoUiTheme.styleSubtext
 local fitText = CasinoUiTheme.fitText
 local setResultContrast = CasinoUiTheme.setResultContrast
 local styleResultBox = CasinoUiTheme.styleResultBox
+local setResultOutcome = CasinoUiTheme.setResultOutcome
+local setResultError = CasinoUiTheme.setResultError
+local layoutResultLabels = CasinoUiTheme.layoutResultLabels
+local ensureResultLabels = CasinoUiTheme.ensureResultLabels
 local ensureGameTitle = CasinoUiTheme.ensureGameTitle
 local function applyQueueTheme()
 	CasinoUiTheme.applyQueueTheme({
@@ -817,17 +810,12 @@ local function applyResponsiveLayout()
             result.Size = UDim2.new(0.28, 0, CTRL_H * 0.85, 0)
             result.Position = UDim2.new(1 - PAD - 0.02, 0, S1_CTRL_TOP + CTRL_H * 0.5, 0)
             result.AnchorPoint = Vector2.new(1, 0.5)
-            local rl = result:FindFirstChild('ResultLbl')
-            if rl then
-                rl.Size = UDim2.new(1, -12, 1, -10)
-                rl.Position = UDim2.new(0.5, 0, 0.5, 0)
-                rl.AnchorPoint = Vector2.new(0.5, 0.5)
-                rl.TextWrapped = true
-                rl.TextXAlignment = Enum.TextXAlignment.Center
-                rl.TextYAlignment = Enum.TextYAlignment.Center
-                fitText(rl, 12, 20)
+            local oldSingle = result:FindFirstChild('ResultLbl')
+            if oldSingle and not result:FindFirstChild('CoinsLbl') then
+                oldSingle.Name = 'CoinsLbl'
             end
-            styleResultBox(result, { rl })
+            local coinLbl, multLbl = ensureResultLabels(result, 'CoinsLbl', 'MultLbl')
+            styleResultBox(result, { coinLbl, multLbl })
         end
     end
 
@@ -905,25 +893,10 @@ local function applyResponsiveLayout()
                     res2.Size = UDim2.fromScale(1, 1)
                     res2.Position = UDim2.fromScale(0.5, 0.5)
                     res2.AnchorPoint = Vector2.new(0.5, 0.5)
-                    local sym = res2:FindFirstChild('ResultSymLabel')
                     local amt = res2:FindFirstChild('ResultAmountLabel')
-                    if sym then
-                        sym.Size = UDim2.new(1, -10, 0.55, 0)
-                        sym.Position = UDim2.new(0.5, 0, 0.08, 0)
-                        sym.AnchorPoint = Vector2.new(0.5, 0)
-                        sym.TextWrapped = true
-                        sym.TextXAlignment = Enum.TextXAlignment.Center
-                        fitText(sym, 11, 18)
-                    end
-                    if amt then
-                        amt.Size = UDim2.new(1, -10, 0.35, 0)
-                        amt.Position = UDim2.new(0.5, 0, 0.92, 0)
-                        amt.AnchorPoint = Vector2.new(0.5, 1)
-                        amt.TextWrapped = true
-                        amt.TextXAlignment = Enum.TextXAlignment.Center
-                        fitText(amt, 11, 18)
-                    end
-                    styleResultBox(res2, { sym, amt })
+                    local sym = res2:FindFirstChild('ResultSymLabel')
+                    layoutResultLabels(amt, sym)
+                    styleResultBox(res2, { amt, sym })
                 end
             end
             local spin2 = bar:FindFirstChild('SpinBtn')
@@ -1041,34 +1014,22 @@ local function applyResponsiveLayout()
                 win.Position = UDim2.new(0.98, 0, 0.5, 0)
                 win.Size = UDim2.new(0.2, 0, 0.9, 0)
                 win.AnchorPoint = Vector2.new(1, 0.5)
-                local m = win:FindFirstChild('MultsLabel')
                 local n = win:FindFirstChild('NetLabel')
-                if m then
-                    m.Size = UDim2.new(1, -8, 0.48, 0)
-                    m.Position = UDim2.new(0.5, 0, 0.08, 0)
-                    m.AnchorPoint = Vector2.new(0.5, 0)
-                    m.TextWrapped = true
-                    fitText(m, 11, 18)
-                end
-                if n then
-                    n.Size = UDim2.new(1, -8, 0.38, 0)
-                    n.Position = UDim2.new(0.5, 0, 0.92, 0)
-                    n.AnchorPoint = Vector2.new(0.5, 1)
-                    n.TextWrapped = true
-                    fitText(n, 11, 18)
-                end
-                styleResultBox(win, { m, n })
+                local m = win:FindFirstChild('MultsLabel')
+                layoutResultLabels(n, m)
+                styleResultBox(win, { n, m })
             end
         end
     end
 
     do
         ensureGameTitle(wheelPage, "Lucky Wheel")
-        local side = PLAY_H * 0.86
+        local side = PLAY_H * 0.78
         local stage = wheelPage:FindFirstChild("WheelStage")
+        local stageBottom = PLAY_TOP + PLAY_H * 0.48 + side * 0.5
         if stage and stage:IsA("GuiObject") then
             stage.AnchorPoint = Vector2.new(0.5, 0.5)
-            stage.Position = UDim2.new(0.5, 0, PLAY_TOP + PLAY_H * 0.52, 0)
+            stage.Position = UDim2.new(0.5, 0, PLAY_TOP + PLAY_H * 0.48, 0)
             stage.Size = UDim2.new(side / CARD_ASPECT, 0, side, 0)
             stage.ClipsDescendants = true
             local ar = stage:FindFirstChild("SquareLock")
@@ -1083,10 +1044,28 @@ local function applyResponsiveLayout()
         local pointer = wheelPage:FindFirstChild("Pointer")
         if pointer and pointer:IsA("GuiObject") then
             pointer.AnchorPoint = Vector2.new(0.5, 1)
-            pointer.Position = UDim2.new(0.5, 0, PLAY_TOP + PLAY_H * 0.52 - side * 0.5, 0)
-            pointer.Size = UDim2.new(0.06, 0, 0.05, 0)
+            pointer.Position = UDim2.new(0.5, 0, PLAY_TOP + PLAY_H * 0.48 - side * 0.48, 0)
+            pointer.Size = UDim2.new(0.045, 0, 0.07, 0)
             pointer.ZIndex = 40
-            fitText(pointer, 18, 36)
+        end
+        local wheelBase = wheelPage:FindFirstChild("WheelBase")
+        if wheelBase and wheelBase:IsA("GuiObject") then
+            wheelBase.AnchorPoint = Vector2.new(0.5, 0)
+            wheelBase.Position = UDim2.new(0.5, 0, stageBottom - side * 0.02, 0)
+            wheelBase.Size = UDim2.new(side * 0.55 / CARD_ASPECT, 0, side * 0.22, 0)
+            wheelBase.ZIndex = 9
+            local neck = wheelBase:FindFirstChild("Neck")
+            local plate = wheelBase:FindFirstChild("Plate")
+            if neck and neck:IsA("GuiObject") then
+                neck.Size = UDim2.new(0.42, 0, 0.55, 0)
+                neck.Position = UDim2.new(0.5, 0, 0, 0)
+                neck.AnchorPoint = Vector2.new(0.5, 0)
+            end
+            if plate and plate:IsA("GuiObject") then
+                plate.Size = UDim2.new(1, 0, 0.28, 0)
+                plate.Position = UDim2.new(0.5, 0, 1, 0)
+                plate.AnchorPoint = Vector2.new(0.5, 1)
+            end
         end
         local ctrlY = CTRL_TOP + CTRL_H * 0.5
         local bet = wheelPage:FindFirstChild("BetRow")
@@ -1146,17 +1125,12 @@ local function applyResponsiveLayout()
             result.Position = UDim2.new(1 - PAD, 0, ctrlY, 0)
             result.AnchorPoint = Vector2.new(1, 0.5)
             result.ZIndex = 30
-            local rl = result:FindFirstChild("ResultLbl")
-            if rl then
-                rl.Size = UDim2.new(1, -14, 1, -12)
-                rl.Position = UDim2.new(0.5, 0, 0.5, 0)
-                rl.AnchorPoint = Vector2.new(0.5, 0.5)
-                rl.TextWrapped = true
-                rl.TextXAlignment = Enum.TextXAlignment.Center
-                rl.TextYAlignment = Enum.TextYAlignment.Center
-                fitText(rl, 16, 28)
+            local oldSingle = result:FindFirstChild("ResultLbl")
+            if oldSingle and not result:FindFirstChild("CoinsLbl") then
+                oldSingle.Name = "CoinsLbl"
             end
-            styleResultBox(result, { rl })
+            local coinLbl, multLbl = ensureResultLabels(result, "CoinsLbl", "MultLbl")
+            styleResultBox(result, { coinLbl, multLbl })
         end
     end
 
@@ -1247,27 +1221,16 @@ local function applyResponsiveLayout()
 				win.Position = UDim2.new(1, 0, 0.5, 0)
 				win.AnchorPoint = Vector2.new(1, 0.5)
 				win.ZIndex = 31
-				local multLbl = win:FindFirstChild("MultLbl") or left:FindFirstChild("MultLbl")
-				local infoLbl = win:FindFirstChild("InfoLbl") or left:FindFirstChild("InfoLbl")
+				local coinsLbl = win:FindFirstChild("MultLbl") or left:FindFirstChild("MultLbl")
+				local multLbl = win:FindFirstChild("InfoLbl") or left:FindFirstChild("InfoLbl")
+				if coinsLbl and coinsLbl:IsA("GuiObject") then
+					coinsLbl.Parent = win
+				end
 				if multLbl and multLbl:IsA("GuiObject") then
 					multLbl.Parent = win
-					multLbl.Size = UDim2.new(1, -10, 0.48, 0)
-					multLbl.Position = UDim2.new(0.5, 0, 0.08, 0)
-					multLbl.AnchorPoint = Vector2.new(0.5, 0)
-					multLbl.TextXAlignment = Enum.TextXAlignment.Center
-					multLbl.TextWrapped = true
-					fitText(multLbl, 18, 32)
 				end
-				if infoLbl and infoLbl:IsA("GuiObject") then
-					infoLbl.Parent = win
-					infoLbl.Size = UDim2.new(1, -10, 0.38, 0)
-					infoLbl.Position = UDim2.new(0.5, 0, 0.92, 0)
-					infoLbl.AnchorPoint = Vector2.new(0.5, 1)
-					infoLbl.TextXAlignment = Enum.TextXAlignment.Center
-					infoLbl.TextWrapped = true
-					fitText(infoLbl, 14, 22)
-				end
-				styleResultBox(win, { multLbl, infoLbl })
+				layoutResultLabels(coinsLbl, multLbl)
+				styleResultBox(win, { coinsLbl, multLbl })
 			end
 		end
 	end
@@ -1710,8 +1673,15 @@ local maxBtn    = betRow:WaitForChild("MaxBtn")
 local spinBtn   = slotsPage:WaitForChild("SpinBtn")
 local resultBg  = slotsPage:WaitForChild("ResultBg")
 local resultNeon= resultBg:FindFirstChildOfClass("UIStroke")
-local resultLbl = resultBg:WaitForChild("ResultLbl")
+do
+	local old = resultBg:FindFirstChild("ResultLbl")
+	if old and not resultBg:FindFirstChild("CoinsLbl") then
+		old.Name = "CoinsLbl"
+	end
+end
+local resultCoins, resultMult = ensureResultLabels(resultBg, "CoinsLbl", "MultLbl")
 resultBg.Visible = false
+styleResultBox(resultBg, { resultCoins, resultMult })
 
 bindCoolHover(spinBtn, 1.05)
 bindCoolHover(minusBtn, 1.08)
@@ -1806,9 +1776,14 @@ local function animateSpin(rarName,betAmount,onDone)
                     refreshCoinsFromServer()
                     local factor=getRar(rarName).factor; local won=math.floor(betAmount*factor)
                     resultBg.Visible=true
-                    if resultNeon then resultNeon.Color=col end
-                    resultLbl.Text=rarName.."   +"..won.." Coins"
-                    setResultContrast(resultLbl, col)
+                    if resultNeon then
+                        if won >= betAmount then
+                            resultNeon.Color = THEME.RESULT_WIN_STROKE
+                        else
+                            resultNeon.Color = THEME.RESULT_LOSS_STROKE
+                        end
+                    end
+                    setResultOutcome(resultBg, resultCoins, resultMult, won, factor, betAmount)
                     if onDone then onDone() end
                 end)
             end)
@@ -1830,9 +1805,8 @@ slotResult.OnClientEvent:Connect(function(success,resultRar,seq,betAmount,afterB
         isSpinning=false; spinBtn.Text="Spin"; stylePrimaryBtn(spinBtn)
         fireSpinState("cancel")
         resultBg.Visible=true
-        resultLbl.Text="Not enough Coins"
-        setResultContrast(resultLbl, Color3.fromRGB(255,90,90))
-        if resultNeon then resultNeon.Color=Color3.fromRGB(255,90,90) end
+        setResultError(resultBg, resultCoins, resultMult, "Not enough Coins")
+        if resultNeon then resultNeon.Color=THEME.RESULT_LOSS_STROKE end
         return
     end
     setAllCoins(afterBet)
@@ -1872,9 +1846,10 @@ bindCoolHover(max2, 1.06)
 local winSec=bottomBar:WaitForChild('WinSection')
 local res2Bg=winSec:WaitForChild('ResultBg')
 local res2Neon=res2Bg:FindFirstChildOfClass('UIStroke')
-local res2Sym=res2Bg:WaitForChild('ResultSymLabel'); local res2Amount=res2Bg:WaitForChild('ResultAmountLabel')
+local res2Amount=res2Bg:WaitForChild('ResultAmountLabel'); local res2Sym=res2Bg:WaitForChild('ResultSymLabel')
 res2Bg.Visible=false
 winSec.Visible=false
+styleResultBox(res2Bg, { res2Amount, res2Sym })
 
 local function showSlots2Result(visible)
     winSec.Visible = visible
@@ -1996,18 +1971,17 @@ local function doSpin2(outcomeName,matchCount,syms5,bet)
             task.delay(0.5,function()
                 isSpinning2=false; refreshCoinsFromServer()
                 local factor=pendingOutcome2.factor or 0; local won=math.floor(bet*factor)
-                showSlots2Result(true); local col=info.col
-                res2Sym.Text=info.disp
-                setResultContrast(res2Sym, col)
-                if won>0 then
-                    res2Amount.Text='+ '..won..' Coins'
-                    setResultContrast(res2Amount, Color3.fromRGB(255,220,50))
-                else
-                    res2Amount.Text=''
-                    setResultContrast(res2Amount, Color3.fromRGB(200,200,210))
+                showSlots2Result(true)
+                setResultOutcome(res2Bg, res2Amount, res2Sym, won, factor, bet)
+                if res2Neon then
+                    if won >= bet and won > 0 then
+                        res2Neon.Color = THEME.RESULT_WIN_STROKE
+                    else
+                        res2Neon.Color = THEME.RESULT_LOSS_STROKE
+                    end
                 end
-                if res2Neon then res2Neon.Color=col end
                 local tier=0
+                local col=info.col
                 if outcomeName:find('diamond') then tier=4 elseif outcomeName:find('seven') then tier=3
                 elseif outcomeName:find('bar') or outcomeName:find('bell') then tier=2
                 elseif outcomeName:find('cherry') or outcomeName:find('lemon') then tier=1 end
@@ -2035,20 +2009,12 @@ slotResult2.OnClientEvent:Connect(function(success,outcomeName,matchCount,syms,b
         isSpinning2=false; spin2Btn.Text='SPIN'; stylePrimaryBtn(spin2Btn)
         fireSpinState("cancel")
         showSlots2Result(true)
-        res2Sym.Text='Not enough Coins'
-        res2Sym.Size = UDim2.new(1, -10, 1, -10)
-        res2Sym.Position = UDim2.new(0.5, 0, 0.5, 0)
-        res2Sym.AnchorPoint = Vector2.new(0.5, 0.5)
-        setResultContrast(res2Sym, Color3.fromRGB(255,90,90))
-        res2Amount.Text=''
-        res2Amount.Visible = false
-        if res2Neon then res2Neon.Color=Color3.fromRGB(255,90,90) end
+        setResultError(res2Bg, res2Amount, res2Sym, 'Not enough Coins')
+        if res2Neon then res2Neon.Color=THEME.RESULT_LOSS_STROKE end
         return
     end
     res2Amount.Visible = true
-    res2Sym.Size = UDim2.new(1, -10, 0.55, 0)
-    res2Sym.Position = UDim2.new(0.5, 0, 0.08, 0)
-    res2Sym.AnchorPoint = Vector2.new(0.5, 0)
+    res2Sym.Visible = true
     pendingOutcome2={factor=0}
     local FACTORS={diamond_3=1.60,diamond_4=4.43,diamond_5=16.02,seven_3=1.13,seven_4=2.64,seven_5=8.86,
         bar_3=0.90,bar_4=1.79,bar_5=4.43,bell_3=0.71,bell_4=1.13,bell_5=2.64,
@@ -2078,6 +2044,8 @@ bindCoolHover(bpPlus, 1.08)
 local wc3=lp3:WaitForChild('WinDisplay')
 local wMults3=wc3:WaitForChild('MultsLabel'); local wNet3=wc3:WaitForChild('NetLabel')
 local wNeon3=wc3:FindFirstChildOfClass('UIStroke')
+styleResultBox(wc3, { wNet3, wMults3 })
+wc3.Visible=false
 local bf3=slots3Page:WaitForChild('BoardFrame'); local pc3=bf3:WaitForChild('PinCanvas')
 local ppc3=pc3:WaitForChild('BallCanvas'); local mb3=bf3:WaitForChild('MultBar')
 
@@ -2273,12 +2241,8 @@ betBtn3.MouseButton1Click:Connect(function()
     local totalBet3=p3BallPrice*p3NumBalls
     if cachedCoins<totalBet3 then
         wc3.Visible=true
-        if wMults3 then
-            wMults3.Text='Not enough Coins'
-            setResultContrast(wMults3, Color3.fromRGB(255,90,90))
-        end
-        if wNet3 then wNet3.Text='' end
-        if wNeon3 then wNeon3.Color=Color3.fromRGB(255,90,90) end
+        setResultError(wc3, wNet3, wMults3, 'Not enough Coins')
+        if wNeon3 then wNeon3.Color=THEME.RESULT_LOSS_STROKE end
         return
     end
     isP3=true;pendP3={};lastP3Snd=nil;wc3.Visible=false
@@ -2293,12 +2257,8 @@ plinkoResult.OnClientEvent:Connect(function(ok3,allPaths,allSlots,allFactors,bal
         fireSpinState("cancel")
         refreshCoinsFromServer()
         wc3.Visible=true
-        if wMults3 then
-            wMults3.Text='Not enough Coins'
-            setResultContrast(wMults3, Color3.fromRGB(255,90,90))
-        end
-        if wNet3 then wNet3.Text='' end
-        if wNeon3 then wNeon3.Color=Color3.fromRGB(255,90,90) end
+        setResultError(wc3, wNet3, wMults3, 'Not enough Coins')
+        if wNeon3 then wNeon3.Color=THEME.RESULT_LOSS_STROKE end
         return
 	end
     local done=0
@@ -2307,22 +2267,15 @@ plinkoResult.OnClientEvent:Connect(function(ok3,allPaths,allSlots,allFactors,bal
         if done==numBalls then
             isP3=false;betBtn3.Text='BET';stylePrimaryBtn(betBtn3)
             if lastP3Snd then fireSpinState("reward", lastP3Snd) else fireSpinState("cancel") end
-            local totalWon=0;local parts={}
-            for i=1,numBalls do local pd=pendP3[i];if pd then totalWon=totalWon+math.floor(ballPrice*pd.factor);parts[#parts+1]=fmtM(pd.factor) end end
+            local totalWon=0;local multSum=0
+            for i=1,numBalls do local pd=pendP3[i];if pd then totalWon=totalWon+math.floor(ballPrice*pd.factor);multSum=multSum+(pd.factor or 0) end end
             local totalBet=ballPrice*numBalls;wc3.Visible=true;setAllCoins(afterC);pulseCoinBadge()
-            if wMults3 then
-                wMults3.Text=table.concat(parts,'  ')
-                wMults3.TextXAlignment=Enum.TextXAlignment.Center
-                setResultContrast(wMults3, Color3.fromRGB(220,200,255))
-            end
-            if wNet3 then
-                wNet3.Text='+'..totalWon..' C'
-                if totalWon>=totalBet then
-                    setResultContrast(wNet3, Color3.fromRGB(80,255,110))
-                    if wNeon3 then wNeon3.Color=Color3.fromRGB(80,255,110) end
+            setResultOutcome(wc3, wNet3, wMults3, totalWon, multSum, totalBet)
+            if wNeon3 then
+                if totalWon >= totalBet and totalWon > 0 then
+                    wNeon3.Color = THEME.RESULT_WIN_STROKE
                 else
-                    setResultContrast(wNet3, Color3.fromRGB(255,170,70))
-                    if wNeon3 then wNeon3.Color=Color3.fromRGB(255,100,40) end
+                    wNeon3.Color = THEME.RESULT_LOSS_STROKE
                 end
             end
         end
@@ -2356,18 +2309,252 @@ local betBox = betRow:WaitForChild("BetInput")
 local riskBtn = wheelPage:WaitForChild("RiskBtn")
 local spinBtn = wheelPage:WaitForChild("SpinBtn")
 local resultBg = wheelPage:WaitForChild("ResultBg")
-local resultLbl = resultBg:WaitForChild("ResultLbl")
+do
+	local old = resultBg:FindFirstChild("ResultLbl")
+	if old and not resultBg:FindFirstChild("CoinsLbl") then
+		old.Name = "CoinsLbl"
+	end
+end
+local resultCoins, resultMult = ensureResultLabels(resultBg, "CoinsLbl", "MultLbl")
+resultBg.Visible = false
 
 CasinoUiTheme.stylePrimaryBtn(spinBtn)
 CasinoUiTheme.styleGhostBtn(riskBtn)
 CasinoUiTheme.styleGhostBtn(minusBtn)
 CasinoUiTheme.styleGhostBtn(plusBtn)
 CasinoUiTheme.styleGhostBtn(maxBtn)
-CasinoUiTheme.styleResultBox(resultBg, { resultLbl })
-CasinoUiTheme.fitText(resultLbl, 16, 28)
+styleResultBox(resultBg, { resultCoins, resultMult })
 CasinoUiTheme.ensureGameTitle(wheelPage, "Lucky Wheel")
-CasinoUiTheme.stylePanel(stage, 99)
+
+local AssetService = game:GetService("AssetService")
+local WHEEL_PX = 512
+local RIM_COLOR = Color3.fromRGB(45, 48, 55)
+local RIM_THICK = 10
+local HUB_OUTER = 0.2
+local HUB_INNER = 0.12
+local DIVIDER_DEG = 1.1
+local WHEEL_COLORS = {
+	Color3.fromRGB(230, 55, 55),
+	Color3.fromRGB(235, 110, 40),
+	Color3.fromRGB(240, 165, 35),
+	Color3.fromRGB(245, 210, 45),
+	Color3.fromRGB(70, 195, 70),
+	Color3.fromRGB(45, 200, 200),
+	Color3.fromRGB(50, 130, 220),
+	Color3.fromRGB(55, 80, 210),
+	Color3.fromRGB(130, 70, 210),
+	Color3.fromRGB(200, 55, 180),
+	Color3.fromRGB(220, 50, 110),
+	Color3.fromRGB(225, 50, 70),
+}
+
+local function ensureCornerFull(obj)
+	local c = obj:FindFirstChildOfClass("UICorner")
+	if not c then
+		c = Instance.new("UICorner")
+		c.Parent = obj
+	end
+	c.CornerRadius = UDim.new(1, 0)
+end
+
+local function ensureStrokeThick(obj, color, thick)
+	local s = obj:FindFirstChildOfClass("UIStroke")
+	if not s then
+		s = Instance.new("UIStroke")
+		s.Parent = obj
+	end
+	s.Color = color
+	s.Thickness = thick
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+end
+
+-- Flat charcoal rim (stage clips face)
+stage.BackgroundColor3 = RIM_COLOR
+stage.BackgroundTransparency = 0
 stage.ClipsDescendants = true
+stage.BorderSizePixel = 0
+ensureCornerFull(stage)
+ensureStrokeThick(stage, RIM_COLOR, RIM_THICK)
+
+local function ensureTeardropPointer()
+	local old = wheelPage:FindFirstChild("Pointer")
+	if old and not old:IsA("Frame") then
+		old:Destroy()
+		old = nil
+	end
+	local ptr = old
+	if not ptr then
+		ptr = Instance.new("Frame")
+		ptr.Name = "Pointer"
+		ptr.Parent = wheelPage
+	end
+	ptr.BackgroundTransparency = 1
+	ptr.BorderSizePixel = 0
+	ptr.ZIndex = 40
+	ptr.AnchorPoint = Vector2.new(0.5, 1)
+	for _, c in ipairs(ptr:GetChildren()) do
+		c:Destroy()
+	end
+	local bulb = Instance.new("Frame")
+	bulb.Name = "Bulb"
+	bulb.AnchorPoint = Vector2.new(0.5, 0)
+	bulb.Position = UDim2.new(0.5, 0, 0, 0)
+	bulb.Size = UDim2.new(0.72, 0, 0.42, 0)
+	bulb.BackgroundColor3 = RIM_COLOR
+	bulb.BorderSizePixel = 0
+	bulb.ZIndex = 41
+	bulb.Parent = ptr
+	ensureCornerFull(bulb)
+	local tip = Instance.new("Frame")
+	tip.Name = "Tip"
+	tip.AnchorPoint = Vector2.new(0.5, 0.5)
+	tip.Position = UDim2.new(0.5, 0, 0.62, 0)
+	tip.Size = UDim2.new(0.55, 0, 0.55, 0)
+	tip.BackgroundColor3 = RIM_COLOR
+	tip.BorderSizePixel = 0
+	tip.Rotation = 45
+	tip.ZIndex = 41
+	tip.Parent = ptr
+	return ptr
+end
+ensureTeardropPointer()
+
+local function ensureWheelBase()
+	local base = wheelPage:FindFirstChild("WheelBase")
+	if not base then
+		base = Instance.new("Frame")
+		base.Name = "WheelBase"
+		base.Parent = wheelPage
+	end
+	base.BackgroundTransparency = 1
+	base.BorderSizePixel = 0
+	base.ZIndex = 9
+	local neck = base:FindFirstChild("Neck")
+	if not neck then
+		neck = Instance.new("Frame")
+		neck.Name = "Neck"
+		neck.Parent = base
+	end
+	neck.BackgroundColor3 = RIM_COLOR
+	neck.BorderSizePixel = 0
+	neck.ZIndex = 9
+	local nc = neck:FindFirstChildOfClass("UICorner")
+	if not nc then
+		nc = Instance.new("UICorner")
+		nc.Parent = neck
+	end
+	nc.CornerRadius = UDim.new(0, 6)
+	local plate = base:FindFirstChild("Plate")
+	if not plate then
+		plate = Instance.new("Frame")
+		plate.Name = "Plate"
+		plate.Parent = base
+	end
+	plate.BackgroundColor3 = RIM_COLOR
+	plate.BorderSizePixel = 0
+	plate.ZIndex = 9
+	local pc = plate:FindFirstChildOfClass("UICorner")
+	if not pc then
+		pc = Instance.new("UICorner")
+		pc.Parent = plate
+	end
+	pc.CornerRadius = UDim.new(0, 4)
+	return base
+end
+ensureWheelBase()
+
+local function paintWheelFace(n)
+	local ok, img = pcall(function()
+		return AssetService:CreateEditableImage({ Size = Vector2.new(WHEEL_PX, WHEEL_PX) })
+	end)
+	if not ok or not img then
+		warn("[LuckyWheel] EditableImage create failed:", img)
+		return nil
+	end
+	local px = WHEEL_PX
+	local cx = (px - 1) * 0.5
+	local cy = (px - 1) * 0.5
+	local radius = px * 0.5 - 2
+	local r2 = radius * radius
+	local segSpan = 360 / n
+	local buf = buffer.create(px * px * 4)
+	local colors = table.create(n)
+	for i = 1, n do
+		local c = WHEEL_COLORS[((i - 1) % #WHEEL_COLORS) + 1]
+		colors[i] = {
+			math.floor(c.R * 255 + 0.5),
+			math.floor(c.G * 255 + 0.5),
+			math.floor(c.B * 255 + 0.5),
+		}
+	end
+	local dr = math.floor(RIM_COLOR.R * 255 + 0.5)
+	local dg = math.floor(RIM_COLOR.G * 255 + 0.5)
+	local db = math.floor(RIM_COLOR.B * 255 + 0.5)
+	for y = 0, px - 1 do
+		local dy = y - cy
+		for x = 0, px - 1 do
+			local dx = x - cx
+			local i0 = ((y * px) + x) * 4
+			local dist2 = dx * dx + dy * dy
+			if dist2 > r2 then
+				buffer.writeu8(buf, i0, 0)
+				buffer.writeu8(buf, i0 + 1, 0)
+				buffer.writeu8(buf, i0 + 2, 0)
+				buffer.writeu8(buf, i0 + 3, 0)
+			else
+				local ang = math.deg(math.atan2(dx, -dy))
+				if ang < 0 then
+					ang += 360
+				end
+				local edge = ang % segSpan
+				local nearEdge = edge < DIVIDER_DEG or edge > (segSpan - DIVIDER_DEG)
+				if nearEdge then
+					buffer.writeu8(buf, i0, dr)
+					buffer.writeu8(buf, i0 + 1, dg)
+					buffer.writeu8(buf, i0 + 2, db)
+					buffer.writeu8(buf, i0 + 3, 255)
+				else
+					local seg = math.floor(ang / segSpan) + 1
+					if seg > n then
+						seg = n
+					end
+					local col = colors[seg]
+					buffer.writeu8(buf, i0, col[1])
+					buffer.writeu8(buf, i0 + 1, col[2])
+					buffer.writeu8(buf, i0 + 2, col[3])
+					buffer.writeu8(buf, i0 + 3, 255)
+				end
+			end
+		end
+	end
+	img:WritePixelsBuffer(Vector2.zero, Vector2.new(px, px), buf)
+	return img
+end
+
+local function ensureWheelFace(n)
+	local face = disc:FindFirstChild("Face")
+	if not face then
+		face = Instance.new("ImageLabel")
+		face.Name = "Face"
+		face.BackgroundTransparency = 1
+		face.BorderSizePixel = 0
+		face.AnchorPoint = Vector2.new(0.5, 0.5)
+		face.Position = UDim2.fromScale(0.5, 0.5)
+		face.Size = UDim2.fromScale(0.92, 0.92)
+		face.ZIndex = 11
+		face.ScaleType = Enum.ScaleType.Fit
+		face.Parent = disc
+	end
+	if face:GetAttribute("PaintedSegs") == n then
+		return face
+	end
+	local img = paintWheelFace(n)
+	if img then
+		face.ImageContent = Content.fromObject(img)
+		face:SetAttribute("PaintedSegs", n)
+	end
+	return face
+end
 
 bindCoolHover(spinBtn, 1.05)
 bindCoolHover(riskBtn, 1.05)
@@ -2396,10 +2583,13 @@ end
 
 local function rebuildDiscLabels(tbl)
 	for _, c in ipairs(disc:GetChildren()) do
-		c:Destroy()
+		if c.Name ~= "Face" then
+			c:Destroy()
+		end
 	end
 	curTable = tbl
 	local n = #tbl
+	ensureWheelFace(n)
 	local maxMult = 0
 	for _, mult in ipairs(tbl) do
 		if mult > maxMult then
@@ -2419,22 +2609,34 @@ local function rebuildDiscLabels(tbl)
 		lbl.Text = fmtMult(mult)
 		lbl.Font = Enum.Font.GothamBlack
 		lbl.TextScaled = true
-		lbl.TextColor3 = if mult == maxMult and maxMult > 0 then Color3.fromRGB(255, 196, 70) elseif mult <= 0 then Color3.fromRGB(255, 90, 90) else Color3.fromRGB(230, 238, 255)
-		lbl.ZIndex = 12
+		lbl.TextColor3 = if mult == maxMult and maxMult > 0 then Color3.fromRGB(255, 240, 120) elseif mult <= 0 then Color3.fromRGB(255, 230, 230) else Color3.fromRGB(255, 255, 255)
+		lbl.ZIndex = 13
 		lbl.Parent = disc
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(20, 22, 28)
+		stroke.Thickness = 1.6
+		stroke.Parent = lbl
 	end
 	local hub = Instance.new("Frame")
 	hub.Name = "Hub"
 	hub.AnchorPoint = Vector2.new(0.5, 0.5)
 	hub.Position = UDim2.fromScale(0.5, 0.5)
-	hub.Size = UDim2.fromScale(0.22, 0.22)
-	hub.BackgroundColor3 = Color3.fromRGB(255, 196, 70)
+	hub.Size = UDim2.fromScale(HUB_OUTER, HUB_OUTER)
+	hub.BackgroundColor3 = RIM_COLOR
 	hub.BorderSizePixel = 0
 	hub.ZIndex = 14
 	hub.Parent = disc
-	local hc = Instance.new("UICorner")
-	hc.CornerRadius = UDim.new(1, 0)
-	hc.Parent = hub
+	ensureCornerFull(hub)
+	local hubIn = Instance.new("Frame")
+	hubIn.Name = "HubInner"
+	hubIn.AnchorPoint = Vector2.new(0.5, 0.5)
+	hubIn.Position = UDim2.fromScale(0.5, 0.5)
+	hubIn.Size = UDim2.fromScale(HUB_INNER / HUB_OUTER, HUB_INNER / HUB_OUTER)
+	hubIn.BackgroundColor3 = Color3.fromRGB(28, 30, 36)
+	hubIn.BorderSizePixel = 0
+	hubIn.ZIndex = 15
+	hubIn.Parent = hub
+	ensureCornerFull(hubIn)
 end
 rebuildDiscLabels(WHEEL_SAFE)
 
@@ -2493,7 +2695,7 @@ spinBtn.MouseButton1Click:Connect(function()
 	local bet = getBetW()
 	if cachedCoins < bet then
 		resultBg.Visible = true
-		resultLbl.Text = "Not enough Coins"
+		setResultError(resultBg, resultCoins, resultMult, "Not enough Coins")
 		return
 	end
 	isWheelSpinning = true
@@ -2507,7 +2709,7 @@ wheelResult.OnClientEvent:Connect(function(ok, idx, factor, risk, bet, coinsAfte
 		isWheelSpinning = false
 		fireSpinState("stop", nil)
 		resultBg.Visible = true
-		resultLbl.Text = "Not enough Coins"
+		setResultError(resultBg, resultCoins, resultMult, "Not enough Coins")
 		if typeof(coinsAfter) == "number" then
 			setAllCoins(coinsAfter)
 		end
@@ -2533,30 +2735,23 @@ wheelResult.OnClientEvent:Connect(function(ok, idx, factor, risk, bet, coinsAfte
 
 	local payout = math.floor(bet * factor)
 	resultBg.Visible = true
+	setResultOutcome(resultBg, resultCoins, resultMult, payout, factor, bet)
 	if factor <= 0 then
-		resultLbl.Text = "BUST  0x"
-		setResultContrast(resultLbl, Color3.fromRGB(255, 90, 90))
 		pcall(function()
 			sndBad:Play()
 		end)
 		fireSpinState("stop", "bad")
 	elseif factor >= 3 then
-		resultLbl.Text = string.format("BIG WIN  %s  +%d", fmtMult(factor), payout)
-		setResultContrast(resultLbl, Color3.fromRGB(255, 196, 70))
 		pcall(function()
 			sndLegend:Play()
 		end)
 		fireSpinState("stop", "jackpot")
 	elseif factor >= 1 then
-		resultLbl.Text = string.format("WIN  %s  +%d", fmtMult(factor), payout)
-		setResultContrast(resultLbl, Color3.fromRGB(80, 255, 110))
 		pcall(function()
 			sndEpic:Play()
 		end)
 		fireSpinState("stop", "mid")
 	else
-		resultLbl.Text = string.format("%s  +%d", fmtMult(factor), payout)
-		setResultContrast(resultLbl, Color3.fromRGB(255, 170, 70))
 		pcall(function()
 			sndCommon:Play()
 		end)
@@ -2597,14 +2792,18 @@ if not infoLbl then
 	infoLbl = left:WaitForChild("InfoLbl") :: TextLabel
 end
 local winDisplay = left:FindFirstChild("WinDisplay") :: Frame?
+-- MultLbl = coins line, InfoLbl = mult line (shared result layout)
+local minesCoinsLbl = multLbl
+local minesMultLbl = infoLbl
 
 CasinoUiTheme.ensureGameTitle(minesPage, "Diamond Mines")
 CasinoUiTheme.stylePanel(gridHost, THEME.CORNER)
 CasinoUiTheme.stylePrimaryBtn(startBtn)
 CasinoUiTheme.styleGhostBtn(minusBtn)
 CasinoUiTheme.styleGhostBtn(plusBtn)
-CasinoUiTheme.fitText(multLbl, 18, 32)
-CasinoUiTheme.fitText(infoLbl, 14, 22)
+if winDisplay then
+	styleResultBox(winDisplay, { minesCoinsLbl, minesMultLbl })
+end
 for _, n in ipairs({ "Size3", "Size4", "Size5" }) do
 	local b = sizeRow:FindFirstChild(n)
 	if b then
@@ -2746,7 +2945,10 @@ startBtn.MouseButton1Click:Connect(function()
 	if not inRound then
 		local bet = getBetM()
 		if cachedCoins < bet then
-			infoLbl.Text = "Not enough Coins"
+			if winDisplay then
+				winDisplay.Visible = true
+			end
+			setResultError(winDisplay, minesCoinsLbl, minesMultLbl, "Not enough Coins")
 			return
 		end
 		isMinesBusy = true
@@ -2817,9 +3019,7 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		if data.cell and cellBtns[data.cell] then
 			cellBtns[data.cell].Text = "💣"
 		end
-		multLbl.Text = "BOOM  0x"
-		infoLbl.Text = "Better luck next time"
-		setResultContrast(multLbl, Color3.fromRGB(255, 90, 90))
+		setResultOutcome(winDisplay, minesCoinsLbl, minesMultLbl, 0, 0, getBetM())
 		if winDisplay then
 			winDisplay.Visible = true
 		end
@@ -2842,19 +3042,18 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 	end
 	if kind == "collected" then
 		local pay = data.payout or 0
-		multLbl.Text = string.format("+%d Coins", pay)
-		infoLbl.Text = string.format("%.2fx multiplier", data.mult or 1)
+		local mult = data.mult or 1
+		local bet = data.bet or getBetM()
 		if winDisplay then
 			winDisplay.Visible = true
 		end
-		if pay >= (getBetM() * 2) then
-			setResultContrast(multLbl, Color3.fromRGB(255, 196, 70))
+		setResultOutcome(winDisplay, minesCoinsLbl, minesMultLbl, pay, mult, bet)
+		if pay >= (bet * 2) then
 			pcall(function()
 				sndLegend:Play()
 			end)
 			fireSpinState("stop", "jackpot")
 		else
-			setResultContrast(multLbl, Color3.fromRGB(80, 255, 110))
 			pcall(function()
 				sndEpic:Play()
 			end)
@@ -2873,7 +3072,10 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		return
 	end
 	if kind == "error" then
-		infoLbl.Text = data.msg or "Error"
+		if winDisplay then
+			winDisplay.Visible = true
+		end
+		setResultError(winDisplay, minesCoinsLbl, minesMultLbl, data.msg or "Error")
 		if data.coins then
 			setAllCoins(data.coins)
 		end

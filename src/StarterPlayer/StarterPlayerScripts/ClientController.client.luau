@@ -374,60 +374,212 @@ local function playIntro()
     showHudCoinsAfterIntro()
 end
 
-local function resolveUserId(playerName)
-    local plr = Players:FindFirstChild(playerName)
-    if plr and plr:IsA("Player") then
+local function findPlayer(userId, playerName)
+    userId = tonumber(userId)
+    if userId then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.UserId == userId then
+                return p
+            end
+        end
+    end
+    if type(playerName) == "string" and playerName ~= "" then
+        local byName = Players:FindFirstChild(playerName)
+        if byName and byName:IsA("Player") then
+            return byName
+        end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Name == playerName or p.DisplayName == playerName then
+                return p
+            end
+        end
+    end
+    return nil
+end
+
+local function resolveUserId(playerName, userId)
+    userId = tonumber(userId)
+    if userId then
+        return userId
+    end
+    local plr = findPlayer(nil, playerName)
+    if plr then
         return plr.UserId
     end
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Name == playerName or p.DisplayName == playerName then
-            return p.UserId
-        end
+    if type(playerName) ~= "string" or playerName == "" then
+        return nil
     end
     local ok, uid = pcall(function()
         return Players:GetUserIdFromNameAsync(playerName)
     end)
-    if ok and type(uid) == "number" and uid > 0 then
+    if ok and type(uid) == "number" then
         return uid
     end
     return nil
 end
 
-local function loadAvatar(imageLabel, userId)
-    userId = tonumber(userId)
-    if not userId or userId <= 0 then
+local function clearAvatarViewport(host)
+    local old = host:FindFirstChild("AvatarViewport")
+    if old then
+        old:Destroy()
+    end
+end
+
+local function fillAvatarFromCharacter(host, character)
+    if not host or not character then
+        return false
+    end
+    clearAvatarViewport(host)
+
+    local clone = nil
+    local wasArchivable = character.Archivable
+    character.Archivable = true
+    local okClone, result = pcall(function()
+        return character:Clone()
+    end)
+    character.Archivable = wasArchivable
+    if okClone and result then
+        clone = result
+    else
+        local humSrc = character:FindFirstChildOfClass("Humanoid")
+        if humSrc then
+            local okDesc, desc = pcall(function()
+                return humSrc:GetAppliedDescription()
+            end)
+            if okDesc and desc then
+                local okModel, model = pcall(function()
+                    return Players:CreateHumanoidModelFromDescription(desc, humSrc.RigType)
+                end)
+                if okModel and model then
+                    clone = model
+                end
+            end
+        end
+    end
+    if not clone then
+        return false
+    end
+
+    local vp = Instance.new("ViewportFrame")
+    vp.Name = "AvatarViewport"
+    vp.Size = UDim2.fromScale(1, 1)
+    vp.Position = UDim2.fromScale(0, 0)
+    vp.BackgroundTransparency = 1
+    vp.BorderSizePixel = 0
+    vp.ZIndex = (host.ZIndex or 1) + 1
+    vp.Ambient = Color3.fromRGB(200, 200, 210)
+    vp.LightColor = Color3.fromRGB(255, 255, 255)
+    vp.LightDirection = Vector3.new(-0.4, -1, -0.3)
+    vp.Parent = host
+    host.ClipsDescendants = true
+    local hostCorner = host:FindFirstChildOfClass("UICorner")
+    if hostCorner then
+        local vc = Instance.new("UICorner")
+        vc.CornerRadius = hostCorner.CornerRadius
+        vc.Parent = vp
+    end
+
+    local world = Instance.new("WorldModel")
+    world.Parent = vp
+
+    for _, d in ipairs(clone:GetDescendants()) do
+        if d:IsA("BasePart") then
+            d.Anchored = true
+            d.CanCollide = false
+            d.LocalTransparencyModifier = 0
+            if d.Name == "HumanoidRootPart" then
+                d.Transparency = 1
+            elseif d.Transparency >= 1 then
+                d.Transparency = 0
+            end
+        elseif d:IsA("Decal") or d:IsA("Texture") then
+            d.Transparency = 0
+        elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("BillboardGui") or d:IsA("ProximityPrompt") then
+            d:Destroy()
+        end
+    end
+    local hum = clone:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    end
+    clone.Parent = world
+
+    local head = clone:FindFirstChild("Head")
+    local cam = Instance.new("Camera")
+    cam.Parent = vp
+    vp.CurrentCamera = cam
+    if head and head:IsA("BasePart") then
+        local look = head.CFrame.Position
+        cam.CFrame = CFrame.lookAt(look + Vector3.new(0, 0.15, 2.2), look)
+    else
+        cam.CFrame = CFrame.lookAt(Vector3.new(0, 2, 4), Vector3.new(0, 1.5, 0))
+    end
+    return true
+end
+
+local function loadAvatar(imageLabel, userId, playerName)
+    if not imageLabel then
+        return
+    end
+    userId = tonumber(userId) or resolveUserId(playerName, userId)
+    imageLabel.ScaleType = Enum.ScaleType.Crop
+    imageLabel.ImageTransparency = 0
+    clearAvatarViewport(imageLabel)
+
+    local function tryCharacterFallback()
+        local plr = findPlayer(userId, playerName)
+        if plr and plr.Character then
+            if imageLabel:IsA("ImageLabel") then
+                imageLabel.Image = ""
+            end
+            return fillAvatarFromCharacter(imageLabel, plr.Character)
+        end
+        return false
+    end
+
+    if not userId then
+        if not tryCharacterFallback() then
+            task.delay(0.5, tryCharacterFallback)
+        end
         return
     end
 
-    imageLabel.ScaleType = Enum.ScaleType.Crop
-    imageLabel.Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", userId)
-
-    task.spawn(function()
-        if not imageLabel.Parent then
-            return
-        end
-        local sizes = {
-            Enum.ThumbnailSize.Size150x150,
-            Enum.ThumbnailSize.Size100x100,
-            Enum.ThumbnailSize.Size48x48,
-        }
-        for _, sz in ipairs(sizes) do
-            local ok, url = pcall(function()
-                return Players:GetUserThumbnailAsync(
-                    userId,
-                    Enum.ThumbnailType.HeadShot,
-                    sz
-                )
-            end)
-            if ok and type(url) == "string" and url ~= "" and imageLabel.Parent then
-                imageLabel.Image = url
+    -- Live accounts: rbxthumb. Studio local players (UserId <= 0): character viewport.
+    if userId > 0 then
+        imageLabel.Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", userId)
+        task.spawn(function()
+            if not imageLabel.Parent then
                 return
             end
+            local sizes = {
+                Enum.ThumbnailSize.Size150x150,
+                Enum.ThumbnailSize.Size100x100,
+                Enum.ThumbnailSize.Size48x48,
+            }
+            for _, sz in ipairs(sizes) do
+                local ok, url = pcall(function()
+                    return Players:GetUserThumbnailAsync(
+                        userId,
+                        Enum.ThumbnailType.HeadShot,
+                        sz
+                    )
+                end)
+                if ok and type(url) == "string" and url ~= "" and imageLabel.Parent then
+                    imageLabel.Image = url
+                    return
+                end
+            end
+            tryCharacterFallback()
+        end)
+    else
+        if not tryCharacterFallback() then
+            task.delay(0.5, tryCharacterFallback)
+            task.delay(1.5, tryCharacterFallback)
         end
-    end)
+    end
 end
 
-local function makeReviewAvatar(parent, size, playerName, zIndex)
+local function makeReviewAvatar(parent, size, playerName, zIndex, userId)
     local av = Instance.new("ImageLabel")
     av.Name = "Avatar"
     av.Size = UDim2.new(0, size, 0, size)
@@ -439,10 +591,8 @@ local function makeReviewAvatar(parent, size, playerName, zIndex)
     av.Parent = parent
     addCorner(av, math.floor(size * 0.5))
     task.spawn(function()
-        local uid = resolveUserId(playerName)
-        if uid then
-            loadAvatar(av, uid)
-        end
+        local uid = resolveUserId(playerName, userId)
+        loadAvatar(av, uid, playerName)
     end)
     return av
 end
@@ -533,7 +683,8 @@ local function populateQueueCard(card: Frame, member: { userId: number?, name: s
     if avatarImg and avatarImg:IsA("ImageLabel") then
         avatarImg.Visible = true
         avatarImg.ImageTransparency = 0
-        loadAvatar(avatarImg, member.userId)
+        avatarImg.ZIndex = math.max(avatarImg.ZIndex, 3)
+        loadAvatar(avatarImg, member.userId, member.name)
     end
 end
 
@@ -886,7 +1037,7 @@ local function showChainInMainWindow(chain, mainWindow)
     titleRow.Position = UDim2.new(0, 16, 0, 14)
     titleRow.Parent = mainWindow
 
-    local titleAv = makeReviewAvatar(titleRow, 36, chain.startPlayerName, 6)
+    local titleAv = makeReviewAvatar(titleRow, 36, chain.startPlayerName, 6, chain.startPlayerUserId)
     titleAv.AnchorPoint = Vector2.new(0, 0.5)
     titleAv.Position = UDim2.new(0, 0, 0.5, 0)
 
@@ -910,6 +1061,7 @@ local function showChainInMainWindow(chain, mainWindow)
     for _, entry in ipairs(chain.entries) do
         local isDrawing = (entry.type == "drawing")
         local authorName = tostring(entry.author or "")
+        local authorUserId = entry.authorUserId
         local textBody = ""
         if not isDrawing then
             if type(entry.content) == "string" and entry.content ~= "" then
@@ -952,7 +1104,7 @@ local function showChainInMainWindow(chain, mainWindow)
         iStroke.Thickness    = 1.5
         iStroke.Parent       = item
 
-        local authAv = makeReviewAvatar(item, 30, authorName, 6)
+        local authAv = makeReviewAvatar(item, 30, authorName, 6, authorUserId)
         authAv.AnchorPoint = Vector2.new(0, 0)
         authAv.Position = UDim2.new(0, 10, 0, 8)
 
@@ -1019,11 +1171,34 @@ local function buildRankingPanel(rankingPanel, playerNames)
 
     for _, c in ipairs(rankingPanel:GetChildren()) do c:Destroy() end
 
-    local others = {}
-    for _, name in ipairs(playerNames) do
-        if name ~= LocalPlayer.Name then table.insert(others, name) end
+    local function normalizeRankEntry(entry)
+        if type(entry) == "string" then
+            return entry, nil
+        end
+        if type(entry) == "table" then
+            return entry.name or entry.Name, tonumber(entry.userId)
+        end
+        return nil, nil
     end
-    if #others == 0 then others = playerNames end
+
+    local others = {}
+    local userIdByName = {}
+    for _, entry in ipairs(playerNames) do
+        local name, uid = normalizeRankEntry(entry)
+        if name and name ~= LocalPlayer.Name then
+            table.insert(others, name)
+            userIdByName[name] = uid
+        end
+    end
+    if #others == 0 then
+        for _, entry in ipairs(playerNames) do
+            local name, uid = normalizeRankEntry(entry)
+            if name then
+                table.insert(others, name)
+                userIdByName[name] = uid
+            end
+        end
+    end
     if #others == 0 then return end
 
     local ROW_H   = 52
@@ -1086,7 +1261,7 @@ local function buildRankingPanel(rankingPanel, playerNames)
             rn.Parent = row
             applyReviewText(rn, 17, true)
 
-            local av = makeReviewAvatar(row, AVATAR, name, 6)
+            local av = makeReviewAvatar(row, AVATAR, name, 6, userIdByName[name])
             av.AnchorPoint = Vector2.new(0, 0.5)
             av.Position = UDim2.new(0, 30, 0.5, 0)
 
@@ -1389,7 +1564,7 @@ local function handleReview(reviewData, playerNames, totalTime)
         stroke2.Transparency = 0.15
         stroke2.Parent      = tile
 
-        local av = makeReviewAvatar(tile, 36, chain.startPlayerName, 6)
+        local av = makeReviewAvatar(tile, 36, chain.startPlayerName, 6, chain.startPlayerUserId)
         av.AnchorPoint = Vector2.new(0, 0.5)
         av.Position = UDim2.new(0, 8, 0.5, 0)
 
@@ -1502,6 +1677,78 @@ local function attachNameBillboard(model, text, accent)
     return coins
 end
 
+local function createPodiumModel(userId, playerName)
+    local plr = findPlayer(userId, playerName)
+    if plr and plr.Character then
+        local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local okDesc, desc = pcall(function()
+                return hum:GetAppliedDescription()
+            end)
+            if okDesc and desc then
+                local okModel, model = pcall(function()
+                    return Players:CreateHumanoidModelFromDescription(desc, hum.RigType)
+                end)
+                if okModel and model then
+                    return model
+                end
+            end
+        end
+        local clone = nil
+        local wasArchivable = plr.Character.Archivable
+        plr.Character.Archivable = true
+        local okClone, result = pcall(function()
+            return plr.Character:Clone()
+        end)
+        plr.Character.Archivable = wasArchivable
+        if okClone and result then
+            clone = result
+        end
+        if not clone then
+            return nil
+        end
+        for _, d in ipairs(clone:GetDescendants()) do
+            if d:IsA("BasePart") then
+                d.Anchored = true
+                d.CanCollide = false
+                d.LocalTransparencyModifier = 0
+                if d.Name == "HumanoidRootPart" then
+                    d.Transparency = 1
+                elseif d.Transparency >= 1 then
+                    d.Transparency = 0
+                end
+            elseif d:IsA("Decal") or d:IsA("Texture") then
+                d.Transparency = 0
+            elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("BillboardGui") or d:IsA("ProximityPrompt") then
+                d:Destroy()
+            end
+        end
+        return clone
+    end
+
+    userId = tonumber(userId) or resolveUserId(playerName, userId)
+    if userId and userId > 0 then
+        local ok, model = pcall(function()
+            return Players:CreateHumanoidModelFromUserIdAsync(userId)
+        end)
+        if ok and model then
+            return model
+        end
+        local okDesc, desc = pcall(function()
+            return Players:GetHumanoidDescriptionFromUserIdAsync(userId)
+        end)
+        if okDesc and desc then
+            local okModel, model = pcall(function()
+                return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+            end)
+            if okModel and model then
+                return model
+            end
+        end
+    end
+    return nil
+end
+
 local function handleResults(results)
     showFrame(resultsFrame)
     local listFrame = resultsFrame:FindFirstChild("ResultsList")
@@ -1579,14 +1826,8 @@ local function handleResults(results)
             local entry = top3[place]
             if not entry then continue end
             local spec = blocks[place]
-            local ok, uid = pcall(function()
-                return Players:GetUserIdFromNameAsync(entry.name)
-            end)
-            if not ok or not uid then continue end
-            local mok, model = pcall(function()
-                return Players:CreateHumanoidModelFromUserIdAsync(uid)
-            end)
-            if not mok or not model then continue end
+            local model = createPodiumModel(entry.userId, entry.name)
+            if not model then continue end
             model.Parent = world
             standOnPodium(model, spec.x, spec.h)
             local hum = model:FindFirstChildOfClass("Humanoid")
@@ -1628,8 +1869,7 @@ local function handleResults(results)
         avS.Parent = tile
         addCorner(avS, 20)
         task.spawn(function()
-            local ok, uid = pcall(function() return Players:GetUserIdFromNameAsync(entry.name) end)
-            if ok and uid then loadAvatar(avS, uid) end
+            loadAvatar(avS, entry.userId, entry.name)
         end)
 
         local nL = Instance.new("TextLabel")

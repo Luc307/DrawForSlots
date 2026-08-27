@@ -30,6 +30,13 @@ CasinoUiTheme.THEME = {
 	TITLE_MAX = 40,
 	BTN_MIN = 16,
 	BTN_MAX = 28,
+	RESULT_BG = Color3.fromRGB(12, 18, 40),
+	RESULT_WIN_BG = Color3.fromRGB(16, 58, 40),
+	RESULT_LOSS_BG = Color3.fromRGB(58, 16, 28),
+	RESULT_WIN = Color3.fromRGB(90, 255, 140),
+	RESULT_LOSS = Color3.fromRGB(255, 105, 105),
+	RESULT_WIN_STROKE = Color3.fromRGB(70, 220, 130),
+	RESULT_LOSS_STROKE = Color3.fromRGB(255, 110, 120),
 }
 
 local THEME = CasinoUiTheme.THEME
@@ -155,30 +162,87 @@ function CasinoUiTheme.ensureGameTitle(page: Frame, text: string)
 	return title
 end
 
+local function styleResultLabel(lbl, minSize, maxSize, font)
+	if not lbl or not (lbl:IsA("TextLabel") or lbl:IsA("TextButton")) then
+		return
+	end
+	lbl.BackgroundTransparency = 1
+	lbl.TextWrapped = false
+	lbl.Font = font or Enum.Font.GothamBold
+	lbl.TextXAlignment = Enum.TextXAlignment.Center
+	lbl.TextYAlignment = Enum.TextYAlignment.Center
+	CasinoUiTheme.fitText(lbl, minSize, maxSize)
+	local stroke = lbl:FindFirstChildOfClass("UIStroke")
+	if not stroke then
+		stroke = Instance.new("UIStroke")
+		stroke.Parent = lbl
+	end
+	stroke.Color = Color3.fromRGB(0, 0, 0)
+	stroke.Thickness = 2
+	stroke.Transparency = 0.15
+end
+
+function CasinoUiTheme.layoutResultLabels(coinLbl, multLbl)
+	if coinLbl and coinLbl:IsA("GuiObject") then
+		coinLbl.Size = UDim2.new(1, -12, 0.52, 0)
+		coinLbl.Position = UDim2.new(0.5, 0, 0.06, 0)
+		coinLbl.AnchorPoint = Vector2.new(0.5, 0)
+		coinLbl.Visible = true
+		styleResultLabel(coinLbl, 14, 26, Enum.Font.GothamBlack)
+	end
+	if multLbl and multLbl:IsA("GuiObject") then
+		multLbl.Size = UDim2.new(1, -12, 0.36, 0)
+		multLbl.Position = UDim2.new(0.5, 0, 0.94, 0)
+		multLbl.AnchorPoint = Vector2.new(0.5, 1)
+		multLbl.Visible = true
+		styleResultLabel(multLbl, 12, 20, Enum.Font.GothamBold)
+	end
+end
+
+function CasinoUiTheme.ensureResultLabels(frame, coinName, multName)
+	if not frame or not frame:IsA("GuiObject") then
+		return nil, nil
+	end
+	local cName = coinName or "CoinsLbl"
+	local mName = multName or "MultLbl"
+	local coinLbl = frame:FindFirstChild(cName)
+	local multLbl = frame:FindFirstChild(mName)
+	if not coinLbl then
+		coinLbl = Instance.new("TextLabel")
+		coinLbl.Name = cName
+		coinLbl.BackgroundTransparency = 1
+		coinLbl.Text = ""
+		coinLbl.ZIndex = (frame.ZIndex or 1) + 1
+		coinLbl.Parent = frame
+	end
+	if not multLbl then
+		multLbl = Instance.new("TextLabel")
+		multLbl.Name = mName
+		multLbl.BackgroundTransparency = 1
+		multLbl.Text = ""
+		multLbl.ZIndex = (frame.ZIndex or 1) + 1
+		multLbl.Parent = frame
+	end
+	CasinoUiTheme.layoutResultLabels(coinLbl, multLbl)
+	return coinLbl, multLbl
+end
+
 function CasinoUiTheme.styleResultBox(frame, labels)
 	if not frame or not frame:IsA("GuiObject") then
 		return
 	end
-	frame.BackgroundColor3 = Color3.fromRGB(12, 18, 40)
+	frame.BackgroundColor3 = THEME.RESULT_BG
 	frame.BackgroundTransparency = 0
+	frame.BorderSizePixel = 0
 	frame.ClipsDescendants = true
 	ensureCorner(frame, 12)
 	ensureStroke(frame, THEME.STROKE, THEME.STROKE_W)
 	local list = labels or {}
-	for _, lbl in ipairs(list) do
-		if lbl and (lbl:IsA("TextLabel") or lbl:IsA("TextButton")) then
-			lbl.BackgroundTransparency = 1
-			lbl.TextWrapped = true
-			lbl.Font = Enum.Font.GothamBold
-			CasinoUiTheme.fitText(lbl, 12, 22)
-			local stroke = lbl:FindFirstChildOfClass("UIStroke")
-			if not stroke then
-				stroke = Instance.new("UIStroke")
-				stroke.Parent = lbl
-			end
-			stroke.Color = Color3.fromRGB(0, 0, 0)
-			stroke.Thickness = 1.5
-			stroke.Transparency = 0.25
+	if #list >= 2 then
+		CasinoUiTheme.layoutResultLabels(list[1], list[2])
+	else
+		for _, lbl in ipairs(list) do
+			styleResultLabel(lbl, 14, 24, Enum.Font.GothamBold)
 		end
 	end
 end
@@ -200,8 +264,58 @@ function CasinoUiTheme.setResultContrast(lbl, accent: Color3?)
 		stroke.Parent = lbl
 	end
 	stroke.Color = Color3.fromRGB(0, 0, 0)
-	stroke.Thickness = 1.6
-	stroke.Transparency = 0.2
+	stroke.Thickness = 2
+	stroke.Transparency = 0.15
+end
+
+local function paintResultBox(frame, isWin)
+	if not frame or not frame:IsA("GuiObject") then
+		return
+	end
+	local bg = if isWin then THEME.RESULT_WIN_BG else THEME.RESULT_LOSS_BG
+	local strokeCol = if isWin then THEME.RESULT_WIN_STROKE else THEME.RESULT_LOSS_STROKE
+	local textCol = if isWin then THEME.RESULT_WIN else THEME.RESULT_LOSS
+	frame.BackgroundColor3 = bg
+	local stroke = frame:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Color = strokeCol
+		stroke.Thickness = THEME.STROKE_W
+		stroke.Transparency = 0
+	end
+	return textCol
+end
+
+function CasinoUiTheme.setResultOutcome(frame, coinLbl, multLbl, coinsWon, multSum, betSpent)
+	local payout = math.max(0, math.floor(tonumber(coinsWon) or 0))
+	local bet = math.max(0, math.floor(tonumber(betSpent) or 0))
+	local mult = tonumber(multSum) or 0
+	local isWin = payout > 0 and payout >= bet
+	local textCol = paintResultBox(frame, isWin)
+	CasinoUiTheme.layoutResultLabels(coinLbl, multLbl)
+	if coinLbl and (coinLbl:IsA("TextLabel") or coinLbl:IsA("TextButton")) then
+		coinLbl.Text = if payout > 0 then ("+" .. tostring(payout) .. " Coins") else "0 Coins"
+		coinLbl.TextColor3 = textCol
+		CasinoUiTheme.setResultContrast(coinLbl, textCol)
+	end
+	if multLbl and (multLbl:IsA("TextLabel") or multLbl:IsA("TextButton")) then
+		multLbl.Text = string.format("%.2fx", mult)
+		multLbl.TextColor3 = textCol
+		CasinoUiTheme.setResultContrast(multLbl, textCol)
+	end
+end
+
+function CasinoUiTheme.setResultError(frame, coinLbl, multLbl, msg)
+	local textCol = paintResultBox(frame, false)
+	CasinoUiTheme.layoutResultLabels(coinLbl, multLbl)
+	if coinLbl and (coinLbl:IsA("TextLabel") or coinLbl:IsA("TextButton")) then
+		coinLbl.Text = msg or "Error"
+		coinLbl.TextColor3 = textCol
+		CasinoUiTheme.setResultContrast(coinLbl, textCol)
+	end
+	if multLbl and (multLbl:IsA("TextLabel") or multLbl:IsA("TextButton")) then
+		multLbl.Text = ""
+		multLbl.Visible = false
+	end
 end
 
 function CasinoUiTheme.styleSubtext(lbl)
@@ -399,7 +513,16 @@ function CasinoUiTheme.applyQueueTheme(ui: UiRefs)
 	CasinoUiTheme.stylePanel(ui.slotsPage:FindFirstChild("StripOuter"), THEME.CORNER)
 	do
 		local rb = ui.slotsPage:FindFirstChild("ResultBg")
-		CasinoUiTheme.styleResultBox(rb, { rb and rb:FindFirstChild("ResultLbl") })
+		if rb then
+			local old = rb:FindFirstChild("ResultLbl")
+			if old and not rb:FindFirstChild("CoinsLbl") then
+				old.Name = "CoinsLbl"
+			end
+			CasinoUiTheme.styleResultBox(rb, {
+				rb:FindFirstChild("CoinsLbl") or rb:FindFirstChild("ResultLbl"),
+				rb:FindFirstChild("MultLbl"),
+			})
+		end
 	end
 	CasinoUiTheme.stylePrimaryBtn(ui.slotsPage:FindFirstChild("SpinBtn"))
 	local betRow1 = ui.slotsPage:FindFirstChild("BetRow")
@@ -428,8 +551,8 @@ function CasinoUiTheme.applyQueueTheme(ui: UiRefs)
 		local res2 = winSec and winSec:FindFirstChild("ResultBg")
 		if res2 then
 			CasinoUiTheme.styleResultBox(res2, {
-				res2:FindFirstChild("ResultSymLabel"),
 				res2:FindFirstChild("ResultAmountLabel"),
+				res2:FindFirstChild("ResultSymLabel"),
 			})
 		end
 		CasinoUiTheme.stylePrimaryBtn(bar2:FindFirstChild("SpinBtn"))
@@ -457,8 +580,8 @@ function CasinoUiTheme.applyQueueTheme(ui: UiRefs)
 		CasinoUiTheme.stylePanel(lp:FindFirstChild("BetBox"), THEME.CORNER)
 		local winDisp = lp:FindFirstChild("WinDisplay")
 		CasinoUiTheme.styleResultBox(winDisp, {
-			winDisp and winDisp:FindFirstChild("MultsLabel"),
 			winDisp and winDisp:FindFirstChild("NetLabel"),
+			winDisp and winDisp:FindFirstChild("MultsLabel"),
 		})
 		local betBox = lp:FindFirstChild("BetBox")
 		if betBox then

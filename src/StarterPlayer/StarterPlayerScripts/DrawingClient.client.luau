@@ -1,3 +1,4 @@
+local GuiService        = game:GetService("GuiService")
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
@@ -186,6 +187,8 @@ end
 
 local lastX, lastY = nil, nil
 
+local endStroke
+
 local function beginStroke(x, y)
     if not drawState.active then return end
     if drawState.isDrawing then return end
@@ -239,7 +242,7 @@ local function continueStroke(x, y)
     lastX, lastY = x, y
 end
 
-local function endStroke()
+endStroke = function()
     if drawState.isDrawing and drawState.currentStroke then
         table.insert(drawState.strokes, drawState.currentStroke)
         drawState.currentStroke = nil
@@ -392,8 +395,10 @@ local function setupCanvas()
     RunService.RenderStepped:Connect(function()
         if not drawState.active or drawState.activeTouchId then return end
         if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then return end
-        local mouse = UserInputService:GetMouseLocation()
-        local x, y = getCanvasPos(Vector2.new(mouse.X, mouse.Y), canvas, true)
+        -- GetMouseLocation includes GuiInset; AbsolutePosition / Input.Position do not.
+        local inset = GuiService:GetGuiInset()
+        local mouse = UserInputService:GetMouseLocation() - inset
+        local x, y = getCanvasPos(mouse, canvas, true)
         if not x then return end
         if not drawState.isDrawing then
             beginStroke(x, y)
