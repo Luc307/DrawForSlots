@@ -107,25 +107,26 @@ local function applyReviewText(lbl, size, useTitleColor)
     stroke.Transparency = 0.2
 end
 
-local function styleReviewTimer(timer)
+local function styleReviewTimer(timer, midX)
     timer.BackgroundTransparency = 1
     timer.BorderSizePixel = 0
     timer.ZIndex = 20
     timer.AnchorPoint = Vector2.new(0.5, 1)
-    timer.Position = UDim2.new(0.5, 0, 1, -18)
-    timer.Size = UDim2.new(0, 420, 0, 52)
+    timer.Position = UDim2.new(midX or 0.5, 0, 1, -10)
+    timer.Size = UDim2.new(0, 220, 0, 84)
 
     local timeLbl = timer:FindFirstChild("TimeLabel")
     local submitLbl = timer:FindFirstChild("SubmitLabel")
     if timeLbl and submitLbl then
-        timeLbl.AnchorPoint = Vector2.new(1, 0.5)
-        timeLbl.Position = UDim2.new(0.5, -8, 0.5, 0)
-        timeLbl.Size = UDim2.new(0, 100, 1, 0)
-        timeLbl.TextXAlignment = Enum.TextXAlignment.Right
-        submitLbl.AnchorPoint = Vector2.new(0, 0.5)
-        submitLbl.Position = UDim2.new(0.5, 8, 0.5, 0)
-        submitLbl.Size = UDim2.new(0, 180, 1, 0)
-        submitLbl.TextXAlignment = Enum.TextXAlignment.Left
+        timeLbl.AnchorPoint = Vector2.new(0.5, 0)
+        timeLbl.Position = UDim2.new(0.5, 0, 0, 4)
+        timeLbl.Size = UDim2.new(1, 0, 0, 40)
+        timeLbl.TextXAlignment = Enum.TextXAlignment.Center
+        submitLbl.AnchorPoint = Vector2.new(0.5, 0)
+        submitLbl.Position = UDim2.new(0.5, 0, 0, 46)
+        submitLbl.Size = UDim2.new(1, 0, 0, 36)
+        submitLbl.TextXAlignment = Enum.TextXAlignment.Center
+        submitLbl.TextWrapped = true
     end
 
     for _, lbl in ipairs(timer:GetDescendants()) do
@@ -484,13 +485,16 @@ local function fillAvatarFromCharacter(host, character)
 
     for _, d in ipairs(clone:GetDescendants()) do
         if d:IsA("BasePart") then
-            d.Anchored = true
             d.CanCollide = false
             d.LocalTransparencyModifier = 0
             if d.Name == "HumanoidRootPart" then
                 d.Transparency = 1
-            elseif d.Transparency >= 1 then
-                d.Transparency = 0
+                d.Anchored = true
+            else
+                d.Anchored = false
+                if d.Transparency >= 1 then
+                    d.Transparency = 0
+                end
             end
         elseif d:IsA("Decal") or d:IsA("Texture") then
             d.Transparency = 0
@@ -509,10 +513,17 @@ local function fillAvatarFromCharacter(host, character)
     cam.Parent = vp
     vp.CurrentCamera = cam
     if head and head:IsA("BasePart") then
-        local look = head.CFrame.Position
-        cam.CFrame = CFrame.lookAt(look + Vector3.new(0, 0.15, 2.2), look)
+        local lv = head.CFrame.LookVector
+        local yaw = math.atan2(lv.X, -lv.Z)
+        clone:PivotTo(clone:GetPivot() * CFrame.Angles(0, -yaw, 0))
+        head = clone:FindFirstChild("Head")
+    end
+    head = clone:FindFirstChild("Head")
+    if head and head:IsA("BasePart") then
+        local focus = head.CFrame.Position + Vector3.new(0, 0.06, 0)
+        cam.CFrame = CFrame.lookAt(focus + Vector3.new(0, 0, -1.85), focus, Vector3.yAxis)
     else
-        cam.CFrame = CFrame.lookAt(Vector3.new(0, 2, 4), Vector3.new(0, 1.5, 0))
+        cam.CFrame = CFrame.lookAt(Vector3.new(0, 1.6, -2.2), Vector3.new(0, 1.5, 0), Vector3.yAxis)
     end
     return true
 end
@@ -726,12 +737,41 @@ local function normalizeMemberList(raw)
     return list
 end
 
-local function handleLobby(currentCount, maxCount, members)
+local function handleLobby(currentCount, maxCount, members, countdown)
     showFrame(lobbyFrame)
 
     local wl = lobbyFrame:FindFirstChild("WaitingLabel", true)
     if wl then
         wl.Text = "Waiting for players: " .. (currentCount or 1) .. "/" .. (maxCount or 3)
+    end
+
+    local cd = lobbyFrame:FindFirstChild("QueueCountdown")
+    if not cd then
+        cd = Instance.new("TextLabel")
+        cd.Name = "QueueCountdown"
+        cd.BackgroundTransparency = 1
+        cd.AnchorPoint = Vector2.new(0.5, 0.5)
+        cd.Position = UDim2.new(0.5, 0, 0.82, 0)
+        cd.Size = UDim2.new(0, 280, 0, 36)
+        cd.Font = Enum.Font.GothamBold
+        cd.TextSize = 22
+        cd.TextColor3 = Color3.fromRGB(255, 240, 120)
+        cd.TextTransparency = 0.15
+        cd.ZIndex = 8
+        cd.Parent = lobbyFrame
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(20, 10, 50)
+        stroke.Thickness = 1.5
+        stroke.Transparency = 0.25
+        stroke.Parent = cd
+    end
+    local n = tonumber(countdown)
+    if n and n > 0 then
+        cd.Visible = true
+        cd.Text = "Starting in " .. n
+    else
+        cd.Visible = false
+        cd.Text = ""
     end
 
     local template = lobbyFrame:FindFirstChild("PlayerCard")
@@ -1203,9 +1243,9 @@ local function buildRankingPanel(rankingPanel, playerNames)
 
     local ROW_H   = 52
     local ROW_GAP = 8
-    local TITLE_H = 28
-    local TITLE_Y = 10
-    local LIST_Y  = TITLE_Y + TITLE_H + 32
+    local TITLE_H = 26
+    local TITLE_Y = 8
+    local LIST_Y  = 50
     local BTN_H   = 44
     local BTN_W   = REVIEW.BTN_W
     local BTN_GAP = 4
@@ -1219,8 +1259,11 @@ local function buildRankingPanel(rankingPanel, playerNames)
     title.Position = UDim2.new(0, 8, 0, TITLE_Y)
     title.Text = "Rank the others"
     title.TextXAlignment = Enum.TextXAlignment.Left
+    title.TextYAlignment = Enum.TextYAlignment.Top
+    title.ClipsDescendants = true
+    title.ZIndex = 2
     title.Parent = rankingPanel
-    applyReviewText(title, 20, true)
+    applyReviewText(title, 18, true)
 
     local listContainer = Instance.new("Frame")
     listContainer.Name = "RankList"
@@ -1228,6 +1271,7 @@ local function buildRankingPanel(rankingPanel, playerNames)
     listContainer.Size = UDim2.new(1, 0, 1, -(LIST_Y + BTN_H + 28))
     listContainer.Position = UDim2.new(0, 0, 0, LIST_Y)
     listContainer.ClipsDescendants = true
+    listContainer.ZIndex = 8
     listContainer.Parent = rankingPanel
 
     local rowOrder = {}
@@ -1248,6 +1292,7 @@ local function buildRankingPanel(rankingPanel, playerNames)
             row.Position = UDim2.new(0,4,0,rowY(i))
             row.BackgroundColor3 = REVIEW.ROW
             row.BorderSizePixel = 0
+            row.ZIndex = 9
             row.Parent = listContainer
             addCorner(row, 8)
             local st = Instance.new("UIStroke")
@@ -1508,7 +1553,8 @@ local function handleReview(reviewData, playerNames, totalTime)
 
     if timer then
         timer.Parent = reviewFrame
-        styleReviewTimer(timer)
+        local midX = leftX + REVIEW.PANEL_W + REVIEW.GAP * 0.5
+        styleReviewTimer(timer, midX)
     end
 
     buildRankingPanel(rankingPanel, playerNames)
@@ -1599,17 +1645,33 @@ local function handleReview(reviewData, playerNames, totalTime)
     end)
 end
 
-local function playPodiumAnim(humanoid, animId)
+local function playPodiumAnim(humanoid, place)
     if not humanoid then return end
+    pcall(function()
+        humanoid.EvaluateStateMachine = false
+    end)
+    humanoid.AutoRotate = false
+    humanoid.PlatformStand = false
     local animator = humanoid:FindFirstChildOfClass("Animator")
     if not animator then
         animator = Instance.new("Animator")
         animator.Parent = humanoid
     end
-    if type(animId) ~= "string" or animId == "" then
-        return
+    pcall(function()
+        for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+            t:Stop(0)
+        end
+    end)
+    local r6 = humanoid.RigType == Enum.HumanoidRigType.R6
+    local list = r6 and Config.PODIUM_DANCE_R6 or Config.PODIUM_DANCE_R15
+    local override = Config["PODIUM_DANCE_" .. tostring(place)]
+    local id = ""
+    if type(override) == "string" and override ~= "" then
+        id = override
+    elseif type(list) == "table" then
+        id = list[((place - 1) % #list) + 1] or list[1]
     end
-    local numeric = tonumber(animId)
+    local numeric = tonumber(tostring(id):match("%d+"))
     if not numeric then return end
     local anim = Instance.new("Animation")
     anim.AnimationId = "rbxassetid://" .. tostring(numeric)
@@ -1618,7 +1680,36 @@ local function playPodiumAnim(humanoid, animId)
     end)
     if ok and track then
         track.Looped = true
-        track:Play()
+        track.Priority = Enum.AnimationPriority.Idle
+        track:Play(0.25, 1, 1)
+    end
+end
+
+local function preparePodiumRig(model)
+    if not model then return end
+    local hum = model:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function()
+            hum.EvaluateStateMachine = false
+        end)
+        hum.AutoRotate = false
+        hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    end
+    local hrp = model:FindFirstChild("HumanoidRootPart")
+    for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("BasePart") then
+            d.Anchored = (d == hrp)
+            d.CanCollide = false
+            d.Massless = true
+            d.AssemblyLinearVelocity = Vector3.zero
+            d.AssemblyAngularVelocity = Vector3.zero
+        elseif d:IsA("Force") or d:IsA("BaseScript") then
+            d:Destroy()
+        end
+    end
+    if hrp then
+        hrp.Anchored = true
+        model.PrimaryPart = hrp
     end
 end
 
@@ -1646,35 +1737,55 @@ local function standOnPodium(model, x, topY)
     end
 end
 
-local function attachNameBillboard(model, text, accent)
-    local head = model:FindFirstChild("Head") or model.PrimaryPart
-    if not head then return end
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "PodiumName"
-    bb.Size = UDim2.new(0, 220, 0, 64)
-    bb.StudsOffset = Vector3.new(0, 3.1, 0)
-    bb.AlwaysOnTop = true
-    bb.Parent = head
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0.58, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = text
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 20
-    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-    lbl.TextStrokeTransparency = 0.3
-    lbl.Parent = bb
-    local coins = Instance.new("TextLabel")
-    coins.Name = "CoinLine"
-    coins.Size = UDim2.new(1, 0, 0.42, 0)
-    coins.Position = UDim2.new(0, 0, 0.58, 0)
-    coins.BackgroundTransparency = 1
-    coins.Font = Enum.Font.GothamBold
-    coins.TextSize = 16
-    coins.TextColor3 = accent
-    coins.TextStrokeTransparency = 0.3
-    coins.Parent = bb
-    return coins
+local function decoratePodiumPart(part, place, name, reward, accent)
+    local sg = part:FindFirstChildOfClass("SurfaceGui")
+    if not sg then
+        sg = Instance.new("SurfaceGui")
+        sg.Parent = part
+    end
+    -- Camera sits at +Z; part Front is -Z. Back face is what the camera sees.
+    sg.Face = Enum.NormalId.Back
+    sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+    sg.PixelsPerStud = 40
+    sg.LightInfluence = 0
+    sg.AlwaysOnTop = false
+    sg.ZOffset = 1
+    for _, c in ipairs(sg:GetChildren()) do c:Destroy() end
+
+    local wrap = Instance.new("Frame")
+    wrap.Size = UDim2.fromScale(1, 1)
+    wrap.BackgroundTransparency = 1
+    wrap.Parent = sg
+
+    local placeLbl = Instance.new("TextLabel")
+    placeLbl.Size = UDim2.new(1, -10, 0.42, 0)
+    placeLbl.Position = UDim2.new(0, 5, 0.04, 0)
+    placeLbl.BackgroundTransparency = 1
+    placeLbl.Font = Enum.Font.GothamBlack
+    placeLbl.TextScaled = true
+    placeLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    placeLbl.Text = tostring(place)
+    placeLbl.Parent = wrap
+
+    local nameLbl = Instance.new("TextLabel")
+    nameLbl.Size = UDim2.new(1, -12, 0.28, 0)
+    nameLbl.Position = UDim2.new(0, 6, 0.46, 0)
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.Font = Enum.Font.GothamBold
+    nameLbl.TextScaled = true
+    nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLbl.Text = name or ""
+    nameLbl.Parent = wrap
+
+    local coinLbl = Instance.new("TextLabel")
+    coinLbl.Size = UDim2.new(1, -12, 0.22, 0)
+    coinLbl.Position = UDim2.new(0, 6, 0.74, 0)
+    coinLbl.BackgroundTransparency = 1
+    coinLbl.Font = Enum.Font.GothamBold
+    coinLbl.TextScaled = true
+    coinLbl.TextColor3 = accent
+    coinLbl.Text = "+" .. tostring(reward or 0) .. " Coins"
+    coinLbl.Parent = wrap
 end
 
 local function createPodiumModel(userId, playerName)
@@ -1773,11 +1884,6 @@ local function handleResults(results)
         [2] = { bg = Color3.fromRGB(0, 210, 255),  glow = Color3.fromRGB(120, 240, 255) },
         [3] = { bg = Color3.fromRGB(255, 85, 0),   glow = Color3.fromRGB(255, 155, 60) },
     }
-    local DANCE = {
-        [1] = Config.PODIUM_DANCE_1,
-        [2] = Config.PODIUM_DANCE_2,
-        [3] = Config.PODIUM_DANCE_3,
-    }
 
     local vp = Instance.new("ViewportFrame")
     vp.Name = "PodiumScene"
@@ -1805,20 +1911,11 @@ local function handleResults(results)
         [2] = { x = -5.6, h = 3.8, color = COL[2].bg },
         [3] = { x = 5.6,  h = 2.6, color = COL[3].bg },
     }
+    local podiumParts = {}
     for place, spec in pairs(blocks) do
         local part = makePodiumPart(world, Vector3.new(4.4, spec.h, 4.4), CFrame.new(spec.x, spec.h * 0.5, 0), spec.color)
-        local face = Instance.new("SurfaceGui")
-        face.Face = Enum.NormalId.Front
-        face.Parent = part
-        local nl = Instance.new("TextLabel")
-        nl.Size = UDim2.new(1, 0, 1, 0)
-        nl.BackgroundTransparency = 1
-        nl.Text = tostring(place)
-        nl.Font = Enum.Font.GothamBlack
-        nl.TextScaled = true
-        nl.TextColor3 = Color3.fromRGB(255, 255, 255)
-        nl.TextTransparency = 0.12
-        nl.Parent = face
+        podiumParts[place] = part
+        decoratePodiumPart(part, place, "", 0, COL[place].glow)
     end
 
     task.spawn(function()
@@ -1829,16 +1926,17 @@ local function handleResults(results)
             local model = createPodiumModel(entry.userId, entry.name)
             if not model then continue end
             model.Parent = world
+            preparePodiumRig(model)
             standOnPodium(model, spec.x, spec.h)
             local hum = model:FindFirstChildOfClass("Humanoid")
             if hum then
-                hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-                playPodiumAnim(hum, DANCE[place])
+                task.delay(0.05, function()
+                    if hum.Parent then
+                        playPodiumAnim(hum, place)
+                    end
+                end)
             end
-            local coinLbl = attachNameBillboard(model, "#" .. place .. " " .. entry.name, COL[place].glow)
-            if coinLbl then
-                coinLbl.Text = "+" .. tostring(entry.reward) .. " Coins"
-            end
+            decoratePodiumPart(podiumParts[place], place, entry.name, entry.reward, COL[place].glow)
         end
     end)
 
@@ -1966,9 +2064,9 @@ local function handleResults(results)
 end
 local lastPhaseTime = nil
 
-GameStateChanged.OnClientEvent:Connect(function(phase, arg1, arg2, arg3)
+GameStateChanged.OnClientEvent:Connect(function(phase, arg1, arg2, arg3, arg4)
     lastPhaseTime = arg1
-    if     phase == "lobby"    then handleLobby(arg1, arg2, arg3)
+    if     phase == "lobby"    then handleLobby(arg1, arg2, arg3, arg4)
     elseif phase == "write"    then handleWrite(arg1)
     elseif phase == "draw"     then
         showFrame(drawFrame)

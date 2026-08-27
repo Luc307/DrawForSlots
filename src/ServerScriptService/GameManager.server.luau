@@ -74,6 +74,10 @@ for _, size in ipairs(Config.QUEUE_SIZES) do
 end
 
 local runSession
+local queueStartGen = {}
+for _, size in ipairs(Config.QUEUE_SIZES) do
+    queueStartGen[size] = 0
+end
 
 local DEFAULT_WALKSPEED = 40 -- do not change this value
 local DEFAULT_JUMPPOWER = 50
@@ -236,12 +240,12 @@ local function buildQueueMemberData(list)
     return members
 end
 
-local function broadcastQueueLobby(size)
+local function broadcastQueueLobby(size, countdown)
     local list = queueMembers[size]
     local members = buildQueueMemberData(list)
     for _, plr in ipairs(list) do
         if plr and plr.Parent then
-            GameStateChanged:FireClient(plr, "lobby", #list, size, members)
+            GameStateChanged:FireClient(plr, "lobby", #list, size, members, countdown)
         end
     end
 end
@@ -257,6 +261,9 @@ local function leaveQueue(plr)
         end
     end
     queuedSize[plr] = nil
+    if queueStartGen[size] then
+        queueStartGen[size] += 1
+    end
     SetQueueState:FireClient(plr, false)
     releasePlayer(plr, true)
     broadcastQueueLobby(size)
@@ -278,12 +285,31 @@ local function joinQueue(plr, size)
         .. #queueMembers[size] .. "/" .. size .. ")")
 
     if #queueMembers[size] >= size then
-        local sessionPlayers = queueMembers[size]
-        queueMembers[size] = {}
-        for _, p in ipairs(sessionPlayers) do
-            queuedSize[p] = nil
-        end
-        task.spawn(runSession, sessionPlayers, size)
+        queueStartGen[size] += 1
+        local gen = queueStartGen[size]
+        task.spawn(function()
+            local delay = Config.QUEUE_START_DELAY or 3
+            for t = delay, 1, -1 do
+                if queueStartGen[size] ~= gen then return end
+                if #queueMembers[size] < size then
+                    broadcastQueueLobby(size)
+                    return
+                end
+                broadcastQueueLobby(size, t)
+                task.wait(1)
+            end
+            if queueStartGen[size] ~= gen then return end
+            if #queueMembers[size] < size then
+                broadcastQueueLobby(size)
+                return
+            end
+            local sessionPlayers = queueMembers[size]
+            queueMembers[size] = {}
+            for _, p in ipairs(sessionPlayers) do
+                queuedSize[p] = nil
+            end
+            runSession(sessionPlayers, size)
+        end)
     end
 end
 
@@ -347,7 +373,7 @@ runSession = function(playerList, playerCount)
             if typeof(strokeData) ~= "table" then return {} end
             local out = {}
             local total = 0
-            local maxPoints = 1200
+            local maxPoints = Config.MAX_DRAW_POINTS or 50000
             local maxX = Config.CANVAS_W
             local maxY = Config.CANVAS_H
             for _, stroke in ipairs(strokeData) do
@@ -367,13 +393,25 @@ runSession = function(playerList, playerCount)
                     end
                 end
                 if #pts > 0 then
-                    table.insert(out, {
-                        r = tonumber(stroke.r) or 0,
-                        g = tonumber(stroke.g) or 0,
-                        b = tonumber(stroke.b) or 0,
-                        size = tonumber(stroke.size) or 4,
-                        points = pts,
-                    })
+                    local kind = stroke.kind
+                    if kind == "fill" and #pts > 0 then
+                        table.insert(out, {
+                            kind = "fill",
+                            r = tonumber(stroke.r) or 0,
+                            g = tonumber(stroke.g) or 0,
+                            b = tonumber(stroke.b) or 0,
+                            size = tonumber(stroke.size) or 4,
+                            points = { pts[1] },
+                        })
+                    else
+                        table.insert(out, {
+                            r = tonumber(stroke.r) or 0,
+                            g = tonumber(stroke.g) or 0,
+                            b = tonumber(stroke.b) or 0,
+                            size = tonumber(stroke.size) or 4,
+                            points = pts,
+                        })
+                    end
                 end
             end
             return out

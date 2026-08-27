@@ -1,3 +1,4 @@
+local AssetService      = game:GetService("AssetService")
 local GuiService        = game:GetService("GuiService")
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,24 +19,25 @@ local RenderStrokesEvent = Signals:WaitForChild("RenderStrokesEvent")
 
 local CANVAS_W = Config.CANVAS_W
 local CANVAS_H = Config.CANVAS_H
--- Keep stroke density low so clients do not freeze / disconnect mid-draw.
-local MIN_POINT_GAP = 4
-local MAX_STROKE_POINTS = 200
-local MAX_TOTAL_POINTS = 1200
-local STAMP_CAP = 48
+local MIN_POINT_GAP = 3
+local MAX_STROKE_POINTS = 400
+local MAX_TOTAL_POINTS = Config.MAX_DRAW_POINTS or 50000
 
 local drawState = {
     active        = false,
     isDrawing     = false,
+    tool          = "brush",
     currentColor  = Color3.fromRGB(0, 0, 0),
     currentSize   = 4,
     strokes       = {},
     currentStroke = nil,
     undoStack     = {},
     canvas        = nil,
+    toolPanel     = nil,
     submitted     = false,
     activeTouchId = nil,
     totalPoints   = 0,
+    fillLock      = false,
 }
 
 local COLORS = {
@@ -47,127 +49,254 @@ local COLORS = {
 }
 local SIZES = Config.BRUSH_SIZES
 
-local function drawDot(canvas, x, y, color, radius)
-    local d = math.max(2, radius * 2)
-    local dot = Instance.new("Frame")
-    dot.Name             = "Dot"
-    dot.BackgroundColor3 = color
-    dot.BorderSizePixel  = 0
-    dot.Size             = UDim2.new(0, d, 0, d)
-    dot.Position         = UDim2.new(0, x - d * 0.5, 0, y - d * 0.5)
-    dot.ZIndex           = 2
-    dot.Parent           = canvas
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(1, 0)
-    c.Parent = dot
+local paints = {}
+
+local function rgb255(c)
+    return math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5)
 end
 
--- Overlapping circle stamps. Rotated frames + UICorner look dotted at M/L sizes
--- and leak past ClipsDescendants.
-local function drawLine(canvas, x1, y1, x2, y2, color, radius)
-    local dx, dy = x2 - x1, y2 - y1
+local function bufIndex(x, y)
+    return ((y * CANVAS_W + x) * 4)
+end
+
+local function setPx(buf, x, y, r, g, b)
+    if x < 0 or y < 0 or x >= CANVAS_W or y >= CANVAS_H then return end
+    local i = bufIndex(x, y)
+    buffer.writeu8(buf, i, r)
+    buffer.writeu8(buf, i + 1, g)
+    buffer.writeu8(buf, i + 2, b)
+    buffer.writeu8(buf, i + 3, 255)
+end
+
+local function getPx(buf, x, y)
+    local i = bufIndex(x, y)
+    return buffer.readu8(buf, i), buffer.readu8(buf, i + 1), buffer.readu8(buf, i + 2)
+end
+
+local function samePx(r1, g1, b1, r2, g2, b2)
+    return r1 == r2 and g1 == g2 and b1 == b2
+end
+
+local function fillWhite(buf)
+    local n = CANVAS_W * CANVAS_H * 4
+    local i = 0
+    while i < n do
+        buffer.writeu8(buf, i, 255)
+        buffer.writeu8(buf, i + 1, 255)
+        buffer.writeu8(buf, i + 2, 255)
+        buffer.writeu8(buf, i + 3, 255)
+        i += 4
+    end
+end
+
+local function stampCircle(buf, cx, cy, radius, r, g, b)
+    local rad = math.max(1, math.floor(radius + 0.5))
+    local r2 = rad * rad
+    local x0 = math.max(0, math.floor(cx - rad))
+    local y0 = math.max(0, math.floor(cy - rad))
+    local x1 = math.min(CANVAS_W - 1, math.ceil(cx + rad))
+    local y1 = math.min(CANVAS_H - 1, math.ceil(cy + rad))
+    for y = y0, y1 do
+        local dy = y - cy
+        for x = x0, x1 do
+            local dx = x - cx
+            if dx * dx + dy * dy <= r2 then
+                setPx(buf, x, y, r, g, b)
+            end
+        end
+    end
+end
+
+local function stampLine(buf, x1, y1, x2, y2, radius, r, g, b)
+    local dx = x2 - x1
+    local dy = y2 - y1
     local dist = math.sqrt(dx * dx + dy * dy)
-    local step = math.max(1.15, radius * 0.38)
+    local step = math.max(1, radius * 0.45)
     if dist < step then
-        drawDot(canvas, x2, y2, color, radius)
+        stampCircle(buf, x2, y2, radius, r, g, b)
         return
     end
     local n = math.ceil(dist / step)
-    if n > STAMP_CAP then n = STAMP_CAP end
     for i = 1, n do
         local t = i / n
-        drawDot(canvas, x1 + dx * t, y1 + dy * t, color, radius)
+        stampCircle(buf, x1 + dx * t, y1 + dy * t, radius, r, g, b)
     end
+end
+
+local function colorDist2(r1, g1, b1, r2, g2, b2)
+    local dr, dg, db = r1 - r2, g1 - g2, b1 - b2
+    return dr * dr + dg * dg + db * db
+end
+
+-- Scanline bucket. Tolerance so anti-aliased / near-white pixels still fill.
+local FILL_TOL2 = 22 * 22
+local function floodFill(buf, sx, sy, r, g, b)
+    sx = math.clamp(math.floor(sx + 0.5), 0, CANVAS_W - 1)
+    sy = math.clamp(math.floor(sy + 0.5), 0, CANVAS_H - 1)
+    local tr, tg, tb = getPx(buf, sx, sy)
+    if colorDist2(tr, tg, tb, r, g, b) <= FILL_TOL2 then return false end
+
+    local function matches(x, y)
+        if x < 0 or y < 0 or x >= CANVAS_W or y >= CANVAS_H then return false end
+        local cr, cg, cb = getPx(buf, x, y)
+        return colorDist2(cr, cg, cb, tr, tg, tb) <= FILL_TOL2
+    end
+
+    local stack = {sx, sy}
+    local visited = buffer.create(CANVAS_W * CANVAS_H)
+    local function marked(x, y)
+        return buffer.readu8(visited, y * CANVAS_W + x) == 1
+    end
+    local function mark(x, y)
+        buffer.writeu8(visited, y * CANVAS_W + x, 1)
+    end
+
+    while #stack >= 2 do
+        local y = table.remove(stack)
+        local x = table.remove(stack)
+        if marked(x, y) or not matches(x, y) then continue end
+        local xL = x
+        while xL > 0 and matches(xL - 1, y) do
+            xL -= 1
+        end
+        local xR = x
+        while xR < CANVAS_W - 1 and matches(xR + 1, y) do
+            xR += 1
+        end
+        for i = xL, xR do
+            setPx(buf, i, y, r, g, b)
+            mark(i, y)
+            if y > 0 and matches(i, y - 1) and not marked(i, y - 1) then
+                table.insert(stack, i)
+                table.insert(stack, y - 1)
+            end
+            if y < CANVAS_H - 1 and matches(i, y + 1) and not marked(i, y + 1) then
+                table.insert(stack, i)
+                table.insert(stack, y + 1)
+            end
+        end
+    end
+    return true
+end
+
+local function flushPaint(paint)
+    if not paint or not paint.ei or not paint.buf then return end
+    pcall(function()
+        paint.ei:WritePixelsBuffer(Vector2.zero, Vector2.new(CANVAS_W, CANVAS_H), paint.buf)
+    end)
+end
+
+local function destroyPaint(canvas)
+    local paint = paints[canvas]
+    if not paint then return end
+    if paint.ei then
+        pcall(function() paint.ei:Destroy() end)
+    end
+    if paint.img and paint.img.Parent then
+        paint.img:Destroy()
+    end
+    paints[canvas] = nil
+end
+
+local function ensurePaint(canvas)
+    if not canvas then return nil end
+    local paint = paints[canvas]
+    if paint and paint.img and paint.img.Parent == canvas and paint.ei then
+        return paint
+    end
+    destroyPaint(canvas)
+
+    local img = Instance.new("ImageLabel")
+    img.Name = "PaintImage"
+    img.BackgroundTransparency = 1
+    img.BorderSizePixel = 0
+    img.Size = UDim2.fromScale(1, 1)
+    img.Position = UDim2.fromScale(0, 0)
+    img.ZIndex = 2
+    img.ScaleType = Enum.ScaleType.Stretch
+    img.Parent = canvas
+    canvas.ClipsDescendants = true
+
+    local ei = nil
+    local ok, result = pcall(function()
+        return AssetService:CreateEditableImage({ Size = Vector2.new(CANVAS_W, CANVAS_H) })
+    end)
+    if ok then ei = result end
+    if not ei then
+        return nil
+    end
+
+    local buf = buffer.create(CANVAS_W * CANVAS_H * 4)
+    fillWhite(buf)
+    pcall(function()
+        img.ImageContent = Content.fromObject(ei)
+    end)
+
+    paint = { img = img, ei = ei, buf = buf, dirty = true }
+    paints[canvas] = paint
+    flushPaint(paint)
+    return paint
+end
+
+local function rasterize(canvas, strokes)
+    local paint = ensurePaint(canvas)
+    if not paint then return end
+    fillWhite(paint.buf)
+    if strokes then
+        for _, stroke in ipairs(strokes) do
+            local r = stroke.r or 0
+            local g = stroke.g or 0
+            local b = stroke.b or 0
+            if typeof(stroke.color) == "Color3" then
+                r, g, b = rgb255(stroke.color)
+            end
+            local pts = stroke.points
+            if stroke.kind == "fill" and pts and pts[1] then
+                floodFill(paint.buf, pts[1].x, pts[1].y, r, g, b)
+            elseif pts and #pts > 0 then
+                local radius = math.max(1, (stroke.size or 4) * 0.5)
+                stampCircle(paint.buf, pts[1].x, pts[1].y, radius, r, g, b)
+                for i = 2, #pts do
+                    stampLine(paint.buf, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, radius, r, g, b)
+                end
+            end
+        end
+    end
+    flushPaint(paint)
 end
 
 local function clearCanvas(canvas)
+    if not canvas then return end
     local layer = canvas:FindFirstChild("StrokeLayer")
-    local roots = { canvas }
-    if layer then table.insert(roots, layer) end
-    for _, root in ipairs(roots) do
-        for _, c in ipairs(root:GetChildren()) do
-            if c.Name == "Dot" or c.Name == "Seg" then c:Destroy() end
-        end
+    if layer then layer:Destroy() end
+    for _, c in ipairs(canvas:GetChildren()) do
+        if c.Name == "Dot" or c.Name == "Seg" then c:Destroy() end
     end
-end
-
-local function ensureStrokeLayer(canvas)
-    canvas.ClipsDescendants = true
-    local layer = canvas:FindFirstChild("StrokeLayer")
-    if not layer then
-        layer = Instance.new("Frame")
-        layer.Name = "StrokeLayer"
-        layer.BackgroundTransparency = 1
-        layer.BorderSizePixel = 0
-        layer.Size = UDim2.fromScale(1, 1)
-        layer.Position = UDim2.fromScale(0, 0)
-        layer.ClipsDescendants = true
-        layer.ZIndex = 2
-        layer.Parent = canvas
-    else
-        layer.ClipsDescendants = true
-        layer.Size = UDim2.fromScale(1, 1)
-    end
-    return layer
-end
-
-local function toPx(canvas, lx, ly)
-    local sz = canvas.AbsoluteSize
-    return lx / CANVAS_W * sz.X, ly / CANVAS_H * sz.Y
-end
-
-local function sizePx(canvas, logicalSize)
-    local sz = canvas.AbsoluteSize
-    local s = math.min(sz.X / CANVAS_W, sz.Y / CANVAS_H)
-    if s <= 0 then s = 1 end
-    return math.max(1, logicalSize * s)
-end
-
-local function renderStrokes(canvas, strokes, targetW, targetH)
-    if not canvas or not strokes then return end
-    local layer = ensureStrokeLayer(canvas)
-    clearCanvas(canvas)
-    local tw = targetW
-    local th = targetH
-    if not tw or tw <= 1 then tw = layer.AbsoluteSize.X end
-    if not th or th <= 1 then th = layer.AbsoluteSize.Y end
-    if tw <= 1 then tw = CANVAS_W end
-    if th <= 1 then th = CANVAS_H end
-    local scale = math.min(tw / CANVAS_W, th / CANVAS_H)
-    local ox = (tw - CANVAS_W * scale) * 0.5
-    local oy = (th - CANVAS_H * scale) * 0.5
-    for _, stroke in ipairs(strokes) do
-        local ok, color = pcall(function()
-            return Color3.fromRGB(stroke.r or 0, stroke.g or 0, stroke.b or 0)
-        end)
-        if not ok then color = Color3.fromRGB(0,0,0) end
-        local radius = math.max(1, (stroke.size or 4) * scale)
-        local points = stroke.points
-        if not points or #points == 0 then continue end
-        local x1 = ox + points[1].x * scale
-        local y1 = oy + points[1].y * scale
-        drawDot(layer, x1, y1, color, radius)
-        for i = 2, #points do
-            local x2 = ox + points[i].x * scale
-            local y2 = oy + points[i].y * scale
-            drawLine(layer, x1, y1, x2, y2, color, radius)
-            x1, y1 = x2, y2
-        end
-    end
+    rasterize(canvas, {})
 end
 
 local function serializeStrokes(strokes)
     local data = {}
     for _, stroke in ipairs(strokes) do
+        local r, g, b = rgb255(stroke.color)
         table.insert(data, {
-            r      = math.floor(stroke.color.R * 255),
-            g      = math.floor(stroke.color.G * 255),
-            b      = math.floor(stroke.color.B * 255),
+            kind   = stroke.kind,
+            r      = r,
+            g      = g,
+            b      = b,
             size   = stroke.size,
             points = stroke.points,
         })
     end
     return data
+end
+
+local function overGui(gui, screenPos)
+    if not gui then return false end
+    local a = gui.AbsolutePosition
+    local s = gui.AbsoluteSize
+    return screenPos.X >= a.X and screenPos.X <= a.X + s.X
+        and screenPos.Y >= a.Y and screenPos.Y <= a.Y + s.Y
 end
 
 local function getCanvasPos(screenPos, canvas, clampOutside)
@@ -177,8 +306,12 @@ local function getCanvasPos(screenPos, canvas, clampOutside)
     local x   = screenPos.X - abs.X
     local y   = screenPos.Y - abs.Y
     if clampOutside then
-        x = math.clamp(x, 0, sz.X)
-        y = math.clamp(y, 0, sz.Y)
+        if not drawState.isDrawing then
+            if x < 0 or y < 0 or x > sz.X or y > sz.Y then return nil, nil end
+        else
+            x = math.clamp(x, 0, sz.X)
+            y = math.clamp(y, 0, sz.Y)
+        end
     else
         if x < 0 or y < 0 or x > sz.X or y > sz.Y then return nil, nil end
     end
@@ -186,12 +319,41 @@ local function getCanvasPos(screenPos, canvas, clampOutside)
 end
 
 local lastX, lastY = nil, nil
-
 local endStroke
+
+local function applyFill(x, y)
+    if drawState.fillLock then return end
+    local canvas = drawState.canvas
+    if not canvas then return end
+    local paint = ensurePaint(canvas)
+    if not paint then return end
+    endStroke()
+    drawState.fillLock = true
+    local r, g, b = rgb255(drawState.currentColor)
+    local ok = floodFill(paint.buf, x, y, r, g, b)
+    flushPaint(paint)
+    paint.dirty = false
+    if ok then
+        table.insert(drawState.strokes, {
+            kind   = "fill",
+            color  = drawState.currentColor,
+            size   = drawState.currentSize,
+            points = {{x = x, y = y}},
+        })
+        drawState.undoStack = {}
+    end
+    task.delay(0.12, function()
+        drawState.fillLock = false
+    end)
+end
 
 local function beginStroke(x, y)
     if not drawState.active then return end
     if drawState.isDrawing then return end
+    if drawState.tool == "fill" then
+        applyFill(x, y)
+        return
+    end
     if drawState.totalPoints >= MAX_TOTAL_POINTS then return end
     local canvas = drawState.canvas
     if not canvas then return end
@@ -203,14 +365,18 @@ local function beginStroke(x, y)
         points = {{x=x, y=y}},
     }
     drawState.totalPoints += 1
-    local layer = ensureStrokeLayer(canvas)
-    local px, py = toPx(canvas, x, y)
-    drawDot(layer, px, py, drawState.currentColor, sizePx(canvas, drawState.currentSize))
+    local paint = ensurePaint(canvas)
+    if paint then
+        local r, g, b = rgb255(drawState.currentColor)
+        stampCircle(paint.buf, x, y, math.max(1, drawState.currentSize * 0.5), r, g, b)
+        paint.dirty = true
+    end
     lastX, lastY = x, y
 end
 
 local function continueStroke(x, y)
     if not drawState.active or not drawState.isDrawing then return end
+    if drawState.tool == "fill" then return end
     local stroke = drawState.currentStroke
     if stroke and #stroke.points >= MAX_STROKE_POINTS then
         endStroke()
@@ -230,10 +396,12 @@ local function continueStroke(x, y)
     end
     local canvas = drawState.canvas
     if canvas and lastX then
-        local layer = ensureStrokeLayer(canvas)
-        local x1, y1 = toPx(canvas, lastX, lastY)
-        local x2, y2 = toPx(canvas, x, y)
-        drawLine(layer, x1, y1, x2, y2, drawState.currentColor, sizePx(canvas, drawState.currentSize))
+        local paint = ensurePaint(canvas)
+        if paint then
+            local r, g, b = rgb255(drawState.currentColor)
+            stampLine(paint.buf, lastX, lastY, x, y, math.max(1, drawState.currentSize * 0.5), r, g, b)
+            paint.dirty = true
+        end
     end
     if stroke then
         table.insert(stroke.points, {x=x, y=y})
@@ -249,6 +417,11 @@ endStroke = function()
         drawState.isDrawing     = false
         lastX, lastY            = nil, nil
         drawState.activeTouchId = nil
+        local paint = drawState.canvas and paints[drawState.canvas]
+        if paint then
+            flushPaint(paint)
+            paint.dirty = false
+        end
     end
 end
 
@@ -275,6 +448,24 @@ local function autoSubmitIfNeeded()
     end
 end
 
+local function setTool(tool)
+    drawState.tool = tool
+    local panel = drawState.toolPanel
+    if not panel then return end
+    local fillBtn = panel:FindFirstChild("FillBtn")
+    if fillBtn and fillBtn:IsA("GuiObject") then
+        fillBtn.BackgroundColor3 = tool == "fill"
+            and Color3.fromRGB(180, 130, 255)
+            or Color3.fromRGB(40, 30, 90)
+    end
+    if tool == "fill" then
+        for j = 1, #SIZES do
+            local b = panel:FindFirstChild("SizeBtn"..j)
+            if b then b.BackgroundColor3 = Color3.fromRGB(40, 30, 90) end
+        end
+    end
+end
+
 local function setupCanvas()
     local sg = PlayerGui:WaitForChild(Config.MAIN_GUI_NAME, 10)
     if not sg then return end
@@ -285,10 +476,70 @@ local function setupCanvas()
     if not (canvas and toolPanel) then return end
 
     drawState.canvas = canvas
-    ensureStrokeLayer(canvas)
+    drawState.toolPanel = toolPanel
+    ensurePaint(canvas)
 
-    -- Ensure palette readable + big enough (Studio place may already be sized).
-    toolPanel.Size = UDim2.new(0, math.max(toolPanel.Size.X.Offset, 150), 0, math.max(toolPanel.Size.Y.Offset, 560))
+    local largeBtn = toolPanel:FindFirstChild("SizeBtn"..#SIZES)
+    local fillBtn = toolPanel:FindFirstChild("FillBtn")
+    local SHIFT = 0
+    if largeBtn then
+        local gap = 8
+        local h = largeBtn.Size.Y.Offset
+        if h < 8 then h = largeBtn.AbsoluteSize.Y end
+        if h < 8 then h = 36 end
+        SHIFT = h + gap
+        if fillBtn then fillBtn:Destroy() end
+        fillBtn = largeBtn:Clone()
+        fillBtn.Name = "FillBtn"
+        fillBtn.BackgroundColor3 = Color3.fromRGB(40, 30, 90)
+        fillBtn.Position = UDim2.new(
+            largeBtn.Position.X.Scale, largeBtn.Position.X.Offset,
+            largeBtn.Position.Y.Scale, largeBtn.Position.Y.Offset + SHIFT
+        )
+        fillBtn.Parent = toolPanel
+        if fillBtn:IsA("TextButton") then
+            fillBtn.Text = "Fill"
+        else
+            local cap = fillBtn:FindFirstChild("FillCaption")
+            if not cap then
+                cap = Instance.new("TextLabel")
+                cap.Name = "FillCaption"
+                cap.BackgroundTransparency = 1
+                cap.Size = UDim2.fromScale(1, 1)
+                cap.Font = Enum.Font.GothamBold
+                cap.TextSize = 14
+                cap.TextColor3 = Color3.fromRGB(255, 255, 255)
+                cap.ZIndex = fillBtn.ZIndex + 1
+                cap.Parent = fillBtn
+            end
+            cap.Text = "Fill"
+        end
+        local cutY = largeBtn.Position.Y.Offset + largeBtn.Size.Y.Offset
+        for _, ch in ipairs(toolPanel:GetChildren()) do
+            if ch:IsA("GuiObject") and ch ~= fillBtn and not string.match(ch.Name, "^SizeBtn") then
+                if ch.Position.Y.Offset >= cutY - 1 then
+                    ch.Position = ch.Position + UDim2.fromOffset(0, SHIFT)
+                end
+            end
+        end
+    elseif not fillBtn then
+        fillBtn = Instance.new("TextButton")
+        fillBtn.Name = "FillBtn"
+        fillBtn.Size = UDim2.new(1, -12, 0, 36)
+        fillBtn.Position = UDim2.new(0, 6, 1, -44)
+        fillBtn.BackgroundColor3 = Color3.fromRGB(40, 30, 90)
+        fillBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        fillBtn.Font = Enum.Font.GothamBold
+        fillBtn.TextSize = 16
+        fillBtn.Text = "Fill"
+        fillBtn.ZIndex = 5
+        fillBtn.Parent = toolPanel
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = fillBtn
+    end
+
+    toolPanel.Size = UDim2.new(0, math.max(toolPanel.Size.X.Offset, 150), 0, math.max(toolPanel.Size.Y.Offset, 560) + SHIFT)
     local undoBtn = toolPanel:FindFirstChild("UndoBtn")
     if undoBtn and undoBtn:IsA("TextButton") then
         undoBtn.Text = "< Undo"
@@ -306,6 +557,13 @@ local function setupCanvas()
         clearBtn.Text = "Clear"
         clearBtn.TextSize = 16
         clearBtn.Font = Enum.Font.GothamBold
+    end
+
+    fillBtn = toolPanel:FindFirstChild("FillBtn")
+    if fillBtn then
+        fillBtn.MouseButton1Click:Connect(function()
+            setTool(drawState.tool == "fill" and "brush" or "fill")
+        end)
     end
 
     for i = 1, #COLORS do
@@ -327,6 +585,7 @@ local function setupCanvas()
         if btn then
             btn.MouseButton1Click:Connect(function()
                 drawState.currentSize = sz
+                setTool("brush")
                 for j = 1, #SIZES do
                     local b = toolPanel:FindFirstChild("SizeBtn"..j)
                     if b then b.BackgroundColor3 = Color3.fromRGB(40,30,90) end
@@ -342,7 +601,7 @@ local function setupCanvas()
                 local removed = table.remove(drawState.strokes)
                 table.insert(drawState.undoStack, removed)
                 drawState.totalPoints = countStrokePoints(drawState.strokes)
-                renderStrokes(canvas, serializeStrokes(drawState.strokes))
+                rasterize(canvas, serializeStrokes(drawState.strokes))
             end
         end)
     end
@@ -352,7 +611,7 @@ local function setupCanvas()
                 local restored = table.remove(drawState.undoStack)
                 table.insert(drawState.strokes, restored)
                 drawState.totalPoints = countStrokePoints(drawState.strokes)
-                renderStrokes(canvas, serializeStrokes(drawState.strokes))
+                rasterize(canvas, serializeStrokes(drawState.strokes))
             end
         end)
     end
@@ -381,6 +640,7 @@ local function setupCanvas()
     UserInputService.InputBegan:Connect(function(input, processed)
         if processed or not drawState.active then return end
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if overGui(toolPanel, input.Position) then return end
         local x, y = getCanvasPos(input.Position, canvas, false)
         if not x then return end
         beginStroke(x, y)
@@ -394,23 +654,24 @@ local function setupCanvas()
 
     RunService.RenderStepped:Connect(function()
         if not drawState.active or drawState.activeTouchId then return end
+        local paint = paints[canvas]
+        if paint and paint.dirty then
+            flushPaint(paint)
+            paint.dirty = false
+        end
+        if not drawState.isDrawing then return end
         if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then return end
-        -- GetMouseLocation includes GuiInset; AbsolutePosition / Input.Position do not.
         local inset = GuiService:GetGuiInset()
         local mouse = UserInputService:GetMouseLocation() - inset
         local x, y = getCanvasPos(mouse, canvas, true)
         if not x then return end
-        if not drawState.isDrawing then
-            beginStroke(x, y)
-        else
-            continueStroke(x, y)
-        end
+        continueStroke(x, y)
     end)
 
-    -- Only the first finger draws; extra touches are ignored.
     UserInputService.TouchStarted:Connect(function(input, processed)
         if processed or not drawState.active then return end
         if drawState.activeTouchId ~= nil then return end
+        if overGui(toolPanel, input.Position) then return end
         local x, y = getCanvasPos(input.Position, canvas, false)
         if not x then return end
         drawState.activeTouchId = input
@@ -430,7 +691,7 @@ local function setupCanvas()
         endStroke()
     end)
 
-    print("[DrawingClient] Canvas ready (mouse + touch)")
+    print("[DrawingClient] Canvas ready (paint + fill)")
 end
 
 DrawActiveEvent.Event:Connect(function(active)
@@ -440,19 +701,21 @@ DrawActiveEvent.Event:Connect(function(active)
     drawState.submitted     = false
     drawState.activeTouchId = nil
     drawState.totalPoints   = 0
+    drawState.fillLock      = false
+    drawState.tool          = "brush"
+    setTool("brush")
     if drawState.canvas then
-        ensureStrokeLayer(drawState.canvas)
         clearCanvas(drawState.canvas)
     end
 end)
 
 RenderStrokesEvent.Event:Connect(function(canvas, strokeData)
     task.spawn(function()
-        for _ = 1, 12 do
+        for _ = 1, 16 do
             if canvas.AbsoluteSize.X > 4 and canvas.AbsoluteSize.Y > 4 then break end
             task.wait(0.05)
         end
-        renderStrokes(canvas, strokeData, canvas.AbsoluteSize.X, canvas.AbsoluteSize.Y)
+        rasterize(canvas, strokeData)
     end)
 end)
 
