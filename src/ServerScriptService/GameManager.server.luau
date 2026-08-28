@@ -67,6 +67,10 @@ local queueMembers  = {}
 local queuedSize    = {}
 -- Players hidden/non-colliding while queued or in a live session.
 local inactivePlayers = {}
+local ignoreSessionEnd = {}
+local sessionSeq = 0
+local playerSession = {} -- [Player] = session id
+local playerMemberSet = {} -- [Player] = memberSet of that session
 local collideCache = {} -- [Model] = { [BasePart] = boolean }
 
 for _, size in ipairs(Config.QUEUE_SIZES) do
@@ -188,13 +192,15 @@ local function teleportToQueueSpawner(plr)
 end
 
 local function releasePlayer(plr, toQueueSpawner)
+    if not inactivePlayers[plr] then
+        return
+    end
     setPlayerInactive(plr, false)
     if toQueueSpawner then
         teleportToQueueSpawner(plr)
     else
         teleportToSpawn(plr)
     end
-    -- Re-apply active after teleport so root stays unanchored at spawn.
     if plr.Character then
         applyCharacterActive(plr.Character, true)
     end
@@ -316,6 +322,13 @@ end
 Players.PlayerRemoving:Connect(function(plr)
     leaveQueue(plr)
     inactivePlayers[plr] = nil
+    ignoreSessionEnd[plr] = nil
+    local ms = playerMemberSet[plr]
+    if ms then
+        ms[plr] = nil
+    end
+    playerMemberSet[plr] = nil
+    playerSession[plr] = nil
 end)
 
 local LeaveQueueRequest = Remotes:WaitForChild("LeaveQueueRequest")
@@ -325,6 +338,13 @@ end)
 
 local ReturnToLobby = Remotes:WaitForChild("ReturnToLobby")
 ReturnToLobby.OnServerEvent:Connect(function(plr)
+    ignoreSessionEnd[plr] = true
+    local ms = playerMemberSet[plr]
+    if ms then
+        ms[plr] = nil
+    end
+    playerMemberSet[plr] = nil
+    playerSession[plr] = nil
     if queuedSize[plr] then
         leaveQueue(plr)
         return
@@ -341,12 +361,23 @@ runSession = function(playerList, playerCount)
     local rankings    = {}
 
     -- Ignore remotes from players outside this session.
+    sessionSeq += 1
+    local myId = sessionSeq
     local memberSet = {}
-    for _, p in ipairs(playerList) do memberSet[p] = true end
+    for _, p in ipairs(playerList) do
+        memberSet[p] = true
+        ignoreSessionEnd[p] = nil
+        playerSession[p] = myId
+        playerMemberSet[p] = memberSet
+    end
+
+    local function inSession(plr)
+        return plr and plr.Parent and memberSet[plr] == true and playerSession[plr] == myId
+    end
 
     local function broadcast(remote, ...)
         for _, plr in ipairs(playerList) do
-            if plr and plr.Parent then
+            if inSession(plr) then
                 remote:FireClient(plr, ...)
             end
         end
@@ -356,10 +387,10 @@ runSession = function(playerList, playerCount)
         local endTime = tick() + duration
         while tick() < endTime do
             local remaining = math.max(0, math.ceil(endTime - tick()))
-            broadcast(SyncTimer, remaining, duration)
+            broadcast(SyncTimer, remaining, duration, myId)
             task.wait(1)
         end
-        broadcast(SyncTimer, 0, duration)
+        broadcast(SyncTimer, 0, duration, myId)
     end
 
     local function collectSubmissions(timeLimit)
@@ -418,7 +449,7 @@ runSession = function(playerList, playerCount)
         end
 
         conns[1] = SubmitText.OnServerEvent:Connect(function(plr, content)
-            if not memberSet[plr] then return end
+            if not inSession(plr) then return end
             if submissions[plr.UserId] then return end
             submissions[plr.UserId] = {type = "text", content = tostring(content)}
             count += 1
@@ -427,7 +458,7 @@ runSession = function(playerList, playerCount)
         end)
 
         conns[2] = SubmitDrawing.OnServerEvent:Connect(function(plr, strokeData)
-            if not memberSet[plr] then return end
+            if not inSession(plr) then return end
             if submissions[plr.UserId] then return end
             submissions[plr.UserId] = {type = "drawing", content = sanitizeDrawing(strokeData)}
             count += 1
@@ -435,8 +466,21 @@ runSession = function(playerList, playerCount)
             print("[GM] Drawing from " .. plr.Name .. " (" .. count .. "/" .. playerCount .. ")")
         end)
 
-        while count < playerCount and (tick() - startTime) < timeLimit do
+        local function waitingOn()
+            local n = 0
+            for p in pairs(memberSet) do
+                if inSession(p) and not submissions[p.UserId] then
+                    n += 1
+                end
+            end
+            return n
+        end
+        while waitingOn() > 0 and (tick() - startTime) < timeLimit do
             task.wait(0.3)
+        end
+        local graceEnd = tick() + 1.5
+        while waitingOn() > 0 and tick() < graceEnd do
+            task.wait(0.1)
         end
 
         for _, conn in ipairs(conns) do conn:Disconnect() end
@@ -449,12 +493,14 @@ runSession = function(playerList, playerCount)
 
     local function distributeRoundData(round, phaseType)
         for i, plr in ipairs(playerList) do
+            if not inSession(plr) then continue end
             local chainIdx  = getChainIndex(i, round)
             local chain     = chains[chainIdx]
             local lastEntry = chain.entries[#chain.entries]
             SendRoundData:FireClient(plr, {
                 phase    = phaseType,
                 chainIdx = chainIdx,
+                sessionId = myId,
                 content  = lastEntry and lastEntry.content or nil,
                 author   = lastEntry and lastEntry.author  or nil,
             })
@@ -494,12 +540,13 @@ runSession = function(playerList, playerCount)
 
     local totalRounds = playerCount
 
-    resetFallbackPool()
-    print("[Draw for Slots] Phase: WRITE (" .. Config.WRITE_TIME .. "s)")
-    broadcast(GameStateChanged, "write", Config.WRITE_TIME)
+    print("[Draw for Slots] Phase: WRITE (" .. Config.WRITE_TIME .. "s) session " .. myId)
+    broadcast(GameStateChanged, "write", Config.WRITE_TIME, myId)
     broadcast(UpdateSubmitCount, 0, playerCount)
     for _, plr in ipairs(playerList) do
-        SendRoundData:FireClient(plr, {phase = "write", content = nil})
+        if inSession(plr) then
+            SendRoundData:FireClient(plr, {phase = "write", content = nil, sessionId = myId})
+        end
     end
     local timerThread = task.spawn(runTimer, Config.WRITE_TIME)
     collectSubmissions(Config.WRITE_TIME)
@@ -514,7 +561,7 @@ runSession = function(playerList, playerCount)
 
         print("[Draw for Slots] Phase: " .. phaseType:upper()
               .. " round " .. round .. " (" .. timeLimit .. "s)")
-        broadcast(GameStateChanged, phaseType, timeLimit)
+        broadcast(GameStateChanged, phaseType, timeLimit, myId)
         broadcast(UpdateSubmitCount, 0, playerCount)
         distributeRoundData(round, phaseType)
         timerThread = task.spawn(runTimer, timeLimit)
@@ -544,22 +591,23 @@ runSession = function(playerList, playerCount)
         })
     end
 
-        broadcast(GameStateChanged, "review", reviewTime)
+    broadcast(GameStateChanged, "review", reviewTime, myId)
     for _, plr in ipairs(playerList) do
+        if not inSession(plr) then continue end
         local othersForPlr = {}
         for _, info in ipairs(playerNames) do
             if info.name ~= plr.Name then
                 table.insert(othersForPlr, info)
             end
         end
-        SendReviewData:FireClient(plr, reviewData, othersForPlr, reviewTime)
+        SendReviewData:FireClient(plr, reviewData, othersForPlr, reviewTime, myId)
     end
     broadcast(UpdateSubmitCount, 0, playerCount)
 
     rankings = {}
     local rankCount = 0
     local rankConn = SubmitRanking.OnServerEvent:Connect(function(plr, rankList)
-        if not memberSet[plr] then return end
+        if not inSession(plr) then return end
         if rankings[plr.UserId] then return end
         rankings[plr.UserId] = rankList
         rankCount += 1
@@ -567,9 +615,18 @@ runSession = function(playerList, playerCount)
         print("[GM] Ranking from " .. plr.Name)
     end)
 
+    local function waitingRanks()
+        local n = 0
+        for p in pairs(memberSet) do
+            if inSession(p) and not rankings[p.UserId] then
+                n += 1
+            end
+        end
+        return n
+    end
     local reviewThread = task.spawn(runTimer, reviewTime)
     local t0 = tick()
-    while rankCount < playerCount and (tick() - t0) < reviewTime do
+    while waitingRanks() > 0 and (tick() - t0) < reviewTime do
         task.wait(0.5)
     end
     task.cancel(reviewThread)
@@ -580,9 +637,15 @@ runSession = function(playerList, playerCount)
 
     for _, rankList in pairs(rankings) do
         local n = #rankList
-        for rank, name in ipairs(rankList) do
+        for rank, raw in ipairs(rankList) do
+            local name = raw
+            if type(raw) == "table" then
+                name = raw.name or raw.Name
+            end
             local pts = math.max(0, (n - rank + 1)) * 100
-            if scores[name] then scores[name] += pts end
+            if type(name) == "string" and scores[name] then
+                scores[name] += pts
+            end
         end
     end
 
@@ -622,23 +685,40 @@ runSession = function(playerList, playerCount)
     end
 
     print("[GM] Phase: RESULTS")
-    broadcast(GameStateChanged, "results", Config.RESULTS_TIME)
-    broadcast(SendResults, results)
+    broadcast(GameStateChanged, "results", Config.RESULTS_TIME, myId)
+    broadcast(SendResults, results, myId)
 
     task.wait(Config.RESULTS_TIME)
     if Config.RETURN_PLACE_ID ~= 0 then
         local ids = {}
         for _, plr in ipairs(playerList) do
-            if plr and plr.Parent then table.insert(ids, plr) end
+            if inSession(plr) and not ignoreSessionEnd[plr] then
+                table.insert(ids, plr)
+            end
         end
-        pcall(function() TeleportService:TeleportAsync(Config.RETURN_PLACE_ID, ids) end)
+        if #ids > 0 then
+            pcall(function() TeleportService:TeleportAsync(Config.RETURN_PLACE_ID, ids) end)
+        end
     end
-    broadcast(SetQueueState, false)
     for _, plr in ipairs(playerList) do
-        if plr and plr.Parent and inactivePlayers[plr] then
-            releasePlayer(plr)
+        if playerSession[plr] ~= myId then
+            continue
+        end
+        playerSession[plr] = nil
+        playerMemberSet[plr] = nil
+        if ignoreSessionEnd[plr] then
+            ignoreSessionEnd[plr] = nil
+        elseif plr and plr.Parent then
+            SetQueueState:FireClient(plr, false)
+            if inactivePlayers[plr] then
+                releasePlayer(plr)
+            end
         end
     end
+    table.clear(chains)
+    table.clear(submissions)
+    table.clear(rankings)
+    table.clear(memberSet)
 
     print("[GM] Session finished")
 end

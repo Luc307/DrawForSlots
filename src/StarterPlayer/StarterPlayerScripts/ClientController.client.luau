@@ -22,6 +22,7 @@ local GetCoins          = Remotes:WaitForChild("GetCoins")
 local SetQueueState     = Remotes:WaitForChild("SetQueueState")
 local LeaveQueueRequest = Remotes:WaitForChild("LeaveQueueRequest")
 local ReturnToLobby     = Remotes:WaitForChild("ReturnToLobby")
+local SyncTimer         = Remotes:WaitForChild("SyncTimer")
 
 UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 
@@ -98,8 +99,89 @@ local REVIEW = {
     BTN_W = 36,
     AV_SIZE = 52,
     AV_GAP = 6,
+    ICON_LEFT = 22,
+    BODY_LEFT = 40,
+    RANK_NUM_W = 56,
+    RANK_TXT = 28,
+    BODY_TXT = 32,
 }
 local submitGen = 0
+local pendingTimeoutSubmit: (() -> ())? = nil
+local reviewEpoch = 0
+local activeSession = 0
+local phaseArmAt = 0
+local writeSubmitConn: RBXScriptConnection? = nil
+local describeSubmitConn: RBXScriptConnection? = nil
+
+local function takeSession(sid)
+    if typeof(sid) ~= "number" then
+        return true
+    end
+    if sid < activeSession then
+        return false
+    end
+    activeSession = sid
+    LocalPlayer:SetAttribute("GameSessionId", sid)
+    return true
+end
+
+local function resetSubmitBtn(btn)
+    if not (btn and btn:IsA("TextButton")) then
+        return
+    end
+    btn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
+    btn.Text = "Submit"
+end
+
+local function findDeep(root, name)
+    if not root then
+        return nil
+    end
+    return root:FindFirstChild(name, true)
+end
+
+local function wipeRoundInputs(keepReviewPaints)
+    pendingTimeoutSubmit = nil
+    submitGen += 1
+    resetSubmitBtn(writeFrame:FindFirstChild("SubmitButton"))
+    resetSubmitBtn(drawFrame:FindFirstChild("SubmitButton"))
+    local tb = writeFrame:FindFirstChild("TextInputBox")
+    if tb and tb:IsA("TextBox") then
+        tb.Text = ""
+    end
+    local ip = writeFrame:FindFirstChild("ImagePreview")
+    if ip then
+        ip:SetAttribute("PaintGen", (ip:GetAttribute("PaintGen") or 0) + 1)
+        for _, ch in ipairs(ip:GetChildren()) do
+            if ch.Name == "PaintImage" or ch.Name == "Dot" or ch.Name == "Seg" or ch.Name == "StrokeLayer" then
+                ch:Destroy()
+            end
+        end
+    end
+    local canvas = drawFrame:FindFirstChild("Canvas")
+    if canvas then
+        canvas:SetAttribute("PaintGen", (canvas:GetAttribute("PaintGen") or 0) + 1)
+        for _, ch in ipairs(canvas:GetChildren()) do
+            if ch.Name == "PaintImage" or ch.Name == "Dot" or ch.Name == "Seg" or ch.Name == "StrokeLayer" then
+                ch:Destroy()
+            end
+        end
+    end
+    local mw = findDeep(reviewFrame, "MainWindow")
+    if mw then
+        mw:SetAttribute("PaintGen", (mw:GetAttribute("PaintGen") or 0) + 1)
+        for _, c in ipairs(mw:GetChildren()) do
+            if c.Name == "EntryItem" or c.Name == "AlbumTitleRow" or c.Name == "ScrollSlack" then
+                c:Destroy()
+            end
+        end
+    end
+    local signals = ReplicatedStorage:FindFirstChild("Signals")
+    local ev = signals and signals:FindFirstChild("DrawActiveEvent")
+    if ev and not keepReviewPaints then
+        ev:Fire(false)
+    end
+end
 
 local function reviewStartX()
     return (1 - REVIEW.PANEL_W * 2 - REVIEW.GAP) * 0.5
@@ -182,6 +264,18 @@ local function applyReviewText(lbl, size, useTitleColor)
     stroke.Color = Color3.fromRGB(15, 8, 40)
     stroke.Thickness = 1.5
     stroke.Transparency = 0.2
+end
+
+local function applyFixedLabel(lbl, size, color)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextScaled = false
+    lbl.TextSize = size
+    lbl.TextColor3 = color
+    local cap = lbl:FindFirstChildOfClass("UITextSizeConstraint")
+    if cap then
+        cap:Destroy()
+    end
 end
 
 local function fitHeaderLabel(lbl, maxSize)
@@ -714,17 +808,18 @@ local function makeReviewAvatar(parent, size, playerName, zIndex, userId)
     return av
 end
 
-local function layoutIconName(av, nameLbl, avSize, extraRight)
+local function layoutIconName(av, nameLbl, avSize, extraRight, leftPad)
     extraRight = extraRight or 8
+    leftPad = leftPad or REVIEW.ICON_LEFT
     local gap = REVIEW.AV_GAP
     av.SizeConstraint = Enum.SizeConstraint.RelativeXY
     av.AnchorPoint = Vector2.new(0, 0.5)
     av.Size = UDim2.new(0, avSize, 0, avSize)
-    av.Position = UDim2.new(0, 8, 0.5, 0)
+    av.Position = UDim2.new(0, leftPad, 0.5, 0)
     if nameLbl then
         nameLbl.AnchorPoint = Vector2.new(0, 0.5)
-        nameLbl.Position = UDim2.new(0, 8 + avSize + gap, 0.5, 0)
-        nameLbl.Size = UDim2.new(1, -(8 + avSize + gap + extraRight), 1, 0)
+        nameLbl.Position = UDim2.new(0, leftPad + avSize + gap, 0.5, 0)
+        nameLbl.Size = UDim2.new(1, -(leftPad + avSize + gap + extraRight), 1, 0)
         nameLbl.TextXAlignment = Enum.TextXAlignment.Left
         nameLbl.TextYAlignment = Enum.TextYAlignment.Center
     end
@@ -999,6 +1094,14 @@ local function handleLobby(currentCount, maxCount, members, countdown)
 end
 
 local function handleWrite(timeLimit)
+    pendingTimeoutSubmit = nil
+    phaseArmAt = os.clock()
+    local ip = writeFrame:FindFirstChild("ImagePreview")
+    if ip then
+        local oldPaint = ip:FindFirstChild("PaintImage")
+        if oldPaint then oldPaint:Destroy() end
+        ip:SetAttribute("PaintGen", (ip:GetAttribute("PaintGen") or 0) + 1)
+    end
     showFrame(writeFrame)
     submitGen += 1
     local gen = submitGen
@@ -1074,9 +1177,12 @@ local function handleWrite(timeLimit)
     local function sendWrite()
         if submitted or gen ~= submitGen then return end
         submitted = true
-        local inputTxt = textBox and textBox.Text ~= "" and textBox.Text
-        local txt = inputTxt
-        if not txt then
+        pendingTimeoutSubmit = nil
+        local raw = textBox and textBox.Text or ""
+        raw = string.gsub(raw, "^%s+", "")
+        raw = string.gsub(raw, "%s+$", "")
+        local txt = raw
+        if txt == "" then
             local ok, fallback = pcall(function()
                 return GetFallbackText:InvokeServer()
             end)
@@ -1096,15 +1202,16 @@ local function handleWrite(timeLimit)
         end
     end
     if submitBtn then
-        submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
-        submitBtn.Text = "Submit"
-        local conn
-        conn = submitBtn.MouseButton1Click:Connect(function()
-            if conn then conn:Disconnect() end
+        resetSubmitBtn(submitBtn)
+        if writeSubmitConn then
+            writeSubmitConn:Disconnect()
+            writeSubmitConn = nil
+        end
+        writeSubmitConn = submitBtn.MouseButton1Click:Connect(function()
             sendWrite()
         end)
     end
-    task.delay(math.max(0.2, waitTime - 0.35), sendWrite)
+    pendingTimeoutSubmit = sendWrite
 end
 
 local function fitPaletteScroll(tp)
@@ -1126,6 +1233,9 @@ local function fitPaletteScroll(tp)
 end
 
 local function handleDraw(timeLimit, roundData)
+    pendingTimeoutSubmit = nil
+    phaseArmAt = os.clock()
+    submitGen += 1
     showFrame(drawFrame)
     local PAL_W = 150
 
@@ -1178,12 +1288,16 @@ local function handleDraw(timeLimit, roundData)
         toolPanel.Size = UDim2.new(0, PAL_W, 0.78, 0)
         toolPanel.VerticalScrollBarInset = Enum.ScrollBarInset.None
         local GAP = 6
-        for i = 1, 10 do
+        local nCol = Config.DRAW_COLORS and #Config.DRAW_COLORS or 10
+        local t1 = toolPanel:FindFirstChild("ColorBtn_1")
+        local y0 = (t1 and t1:IsA("GuiObject") and t1.Position.Y.Offset) or 8
+        for i = 1, nCol do
             local btn = toolPanel:FindFirstChild("ColorBtn_" .. i)
             if btn and btn:IsA("GuiObject") then
                 local leftCol = (i % 2 == 1)
+                local row = math.ceil(i / 2)
                 btn.AnchorPoint = leftCol and Vector2.new(1, 0) or Vector2.new(0, 0)
-                btn.Position = UDim2.new(0.5, leftCol and -GAP or GAP, 0, btn.Position.Y.Offset)
+                btn.Position = UDim2.new(0.5, leftCol and -GAP or GAP, 0, y0 + (row - 1) * (56 + GAP))
                 btn.Size = UDim2.fromOffset(56, 56)
             end
         end
@@ -1260,8 +1374,7 @@ local function handleDraw(timeLimit, roundData)
     local ev = signals and signals:FindFirstChild("DrawActiveEvent")
     if ev then ev:Fire(true) end
     if submitBtn then
-        submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
-        submitBtn.Text = "Submit"
+        resetSubmitBtn(submitBtn)
         addClickSound(submitBtn)
     end
 end
@@ -1271,17 +1384,25 @@ local function fireStrokes(canvas, content)
     local signals = ReplicatedStorage:FindFirstChild("Signals")
     local renderEv = signals and signals:FindFirstChild("RenderStrokesEvent")
     if not renderEv then return end
+    local gen = (canvas:GetAttribute("PaintGen") or 0) + 1
+    canvas:SetAttribute("PaintGen", gen)
     task.spawn(function()
-        for _ = 1, 12 do
-            if canvas.AbsoluteSize.X > 4 and canvas.AbsoluteSize.Y > 4 then break end
+        for _ = 1, 20 do
+            if not canvas.Parent then return end
+            if canvas:GetAttribute("PaintGen") ~= gen then return end
+            if canvas.AbsoluteSize.X > 8 and canvas.AbsoluteSize.Y > 8 then break end
             task.wait(0.05)
         end
-        renderEv:Fire(canvas, content)
+        if not canvas.Parent then return end
+        if canvas:GetAttribute("PaintGen") ~= gen then return end
+        renderEv:Fire(canvas, content, gen)
     end)
 end
 
 local function handleDescribe(timeLimit, roundData)
     showFrame(writeFrame)
+    pendingTimeoutSubmit = nil
+    phaseArmAt = os.clock()
     submitGen += 1
     local gen = submitGen
     local waitTime = timeLimit or Config.DESCRIBE_TIME
@@ -1388,8 +1509,12 @@ local function handleDescribe(timeLimit, roundData)
     local function sendDescribe()
         if submitted or gen ~= submitGen then return end
         submitted = true
-        local txt = (textBox and textBox.Text ~= "") and textBox.Text
-            or "Jokes on me: I was too silly to write anything!"
+        pendingTimeoutSubmit = nil
+        local raw = textBox and textBox.Text or ""
+        raw = string.gsub(raw, "^%s+", "")
+        raw = string.gsub(raw, "%s+$", "")
+        local txt = raw ~= "" and raw
+            or "[Player gave no input] - draw what you want!"    
         SubmitText:FireServer(txt)
         if submitBtn then
             submitBtn.BackgroundColor3 = Color3.fromRGB(80, 130, 80)
@@ -1404,27 +1529,70 @@ local function handleDescribe(timeLimit, roundData)
         end
     end
     if submitBtn then
-        submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
-        submitBtn.Text = "Submit"
-        local conn
-        conn = submitBtn.MouseButton1Click:Connect(function()
-            if conn then conn:Disconnect() end
+        resetSubmitBtn(submitBtn)
+        if describeSubmitConn then
+            describeSubmitConn:Disconnect()
+            describeSubmitConn = nil
+        end
+        describeSubmitConn = submitBtn.MouseButton1Click:Connect(function()
             sendDescribe()
         end)
     end
-    task.delay(math.max(0.2, waitTime - 0.35), sendDescribe)
+    pendingTimeoutSubmit = sendDescribe
 end
 
 local function showChainInMainWindow(chain, mainWindow)
-    if not mainWindow then return end
+    if not mainWindow or not chain then return end
     for _, c in ipairs(mainWindow:GetChildren()) do
-        if c.Name == "EntryItem" or c.Name == "AlbumTitleRow"
-            or c:IsA("UIListLayout") or c:IsA("UIPadding") then
-            c:Destroy()
-        elseif c.Name == "AlbumTitle" then
-            c.Visible = false
+        if c:IsA("UICorner") or c:IsA("UIStroke") or c:IsA("UIGradient") then
+            continue
+        end
+        c:Destroy()
+    end
+
+    local ASPECT = CANVAS_W / CANVAS_H
+    local paneW = math.max(mainWindow.AbsoluteSize.X, 240)
+    local innerW = math.max(paneW * 0.9, 160)
+    local drawH = math.max(140, math.floor(innerW / ASPECT + 0.5))
+    local textH = 88
+    local itemExtra = 10 + 12 + REVIEW.AV_SIZE + 16
+    local entries = chain.entries or {}
+    local contentH = 12 + 56 + 80 + 72
+    for _, entry in ipairs(entries) do
+        contentH += 10 + itemExtra
+        if entry.type == "drawing" then
+            contentH += drawH
+        else
+            contentH += textH
         end
     end
+    if mainWindow:IsA("ScrollingFrame") then
+        mainWindow.ScrollingEnabled = true
+        mainWindow.AutomaticCanvasSize = Enum.AutomaticSize.None
+        local w = math.max(math.floor(mainWindow.AbsoluteSize.X + 0.5), 1)
+        local viewH = math.max(math.floor(mainWindow.AbsoluteSize.Y + 0.5), 1)
+        mainWindow.CanvasSize = UDim2.fromOffset(w, math.max(contentH, viewH))
+        mainWindow.CanvasPosition = Vector2.new(0, 0)
+        mainWindow.ScrollBarThickness = 8
+        mainWindow.BackgroundColor3 = REVIEW.RIGHT_BG
+        mainWindow.BackgroundTransparency = 0
+        mainWindow.ClipsDescendants = true
+        mainWindow.ScrollBarImageColor3 = REVIEW.CARD_STROKE
+        mainWindow.ElasticBehavior = Enum.ElasticBehavior.Always
+    end
+
+    local list = Instance.new("UIListLayout")
+    list.SortOrder = Enum.SortOrder.LayoutOrder
+    list.Padding = UDim.new(0, 10)
+    list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    list.Parent = mainWindow
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop = UDim.new(0, 12)
+    pad.PaddingBottom = UDim.new(0, 80)
+    pad.PaddingLeft = UDim.new(0.03, 0)
+    pad.PaddingRight = UDim.new(0.03, 0)
+    pad.Parent = mainWindow
 
     local titleRow = Instance.new("Frame")
     titleRow.Name = "AlbumTitleRow"
@@ -1459,28 +1627,7 @@ local function showChainInMainWindow(chain, mainWindow)
     albumTitle.TextScaled = false
     albumTitle.TextSize = 26
 
-    local list = mainWindow:FindFirstChildOfClass("UIListLayout")
-    if not list then
-        list = Instance.new("UIListLayout")
-        list.Parent = mainWindow
-    end
-    list.SortOrder = Enum.SortOrder.LayoutOrder
-    list.Padding = UDim.new(0, 10)
-    list.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-    local pad = mainWindow:FindFirstChildOfClass("UIPadding")
-    if not pad then
-        pad = Instance.new("UIPadding")
-        pad.Parent = mainWindow
-    end
-    pad.PaddingTop = UDim.new(0.02, 0)
-    pad.PaddingBottom = UDim.new(0.02, 0)
-    pad.PaddingLeft = UDim.new(0.03, 0)
-    pad.PaddingRight = UDim.new(0.03, 0)
-
-    local ASPECT = CANVAS_W / CANVAS_H
-
-    for i, entry in ipairs(chain.entries) do
+    for i, entry in ipairs(entries) do
         local isDrawing = (entry.type == "drawing")
         local authorName = tostring(entry.author or "")
         local authorUserId = entry.authorUserId
@@ -1493,10 +1640,13 @@ local function showChainInMainWindow(chain, mainWindow)
             end
         end
 
+        local bodyH = isDrawing and drawH or textH
+        local itemH = itemExtra + bodyH
+
         local item = Instance.new("Frame")
         item.Name              = "EntryItem"
-        item.AutomaticSize     = Enum.AutomaticSize.Y
-        item.Size              = UDim2.new(1, 0, 0, 0)
+        item.AutomaticSize     = Enum.AutomaticSize.None
+        item.Size              = UDim2.new(1, -16, 0, itemH)
         item.BackgroundColor3  = REVIEW.ENTRY
         item.BorderSizePixel   = 0
         item.ClipsDescendants  = false
@@ -1512,7 +1662,7 @@ local function showChainInMainWindow(chain, mainWindow)
         local itemLay = Instance.new("UIListLayout")
         itemLay.SortOrder = Enum.SortOrder.LayoutOrder
         itemLay.Padding = UDim.new(0, 16)
-        itemLay.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        itemLay.HorizontalAlignment = Enum.HorizontalAlignment.Left
         itemLay.Parent = item
 
         local itemPad = Instance.new("UIPadding")
@@ -1536,16 +1686,16 @@ local function showChainInMainWindow(chain, mainWindow)
         auth.ZIndex            = 6
         auth.Parent            = header
         applyReviewText(auth, 18, false)
-        layoutIconName(authAv, auth, REVIEW.AV_SIZE, 8)
+        layoutIconName(authAv, auth, REVIEW.AV_SIZE, 8, REVIEW.ICON_LEFT)
 
         if isDrawing then
             local dc = Instance.new("Frame")
             dc.Name             = "DrawPreview"
             dc.LayoutOrder      = 2
-            dc.Size             = UDim2.new(1, 0, 0, 160)
+            dc.Size             = UDim2.new(1, 0, 0, drawH)
             dc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
             dc.BorderSizePixel  = 0
-            dc.ClipsDescendants = false
+            dc.ClipsDescendants = true
             dc.Parent           = item
             addCorner(dc, 8)
             local border = Instance.new("UIStroke")
@@ -1553,41 +1703,37 @@ local function showChainInMainWindow(chain, mainWindow)
             border.Thickness = 2
             border.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             border.Parent = dc
-            task.defer(function()
-                if not dc.Parent then return end
-                local w = dc.AbsoluteSize.X
-                if w > 4 then
-                    dc.Size = UDim2.new(1, 0, 0, math.floor(w / ASPECT + 0.5))
-                end
-            end)
             if type(entry.content) == "table" then
                 fireStrokes(dc, entry.content)
             end
         else
             local tl = Instance.new("TextLabel")
             tl.LayoutOrder       = 2
-            tl.AutomaticSize     = Enum.AutomaticSize.Y
-            tl.Size              = UDim2.new(1, 0, 0, 0)
+            tl.AutomaticSize     = Enum.AutomaticSize.None
+            tl.Size              = UDim2.new(1, 0, 0, textH)
             tl.Text              = textBody
             tl.TextXAlignment    = Enum.TextXAlignment.Left
             tl.TextYAlignment    = Enum.TextYAlignment.Top
             tl.TextWrapped       = true
             tl.ZIndex            = 6
             tl.Parent            = item
-            applyReviewText(tl, 20, false)
-            tl.TextScaled = false
+            local tPad = Instance.new("UIPadding")
+            tPad.PaddingLeft = UDim.new(0, REVIEW.BODY_LEFT)
+            tPad.PaddingRight = UDim.new(0, 8)
+            tPad.Parent = tl
+            applyFixedLabel(tl, REVIEW.BODY_TXT, REVIEW.TEXT_BODY)
+            tl.TextWrapped = true
+            tl.TextXAlignment = Enum.TextXAlignment.Left
+            tl.TextYAlignment = Enum.TextYAlignment.Top
         end
     end
 
-    if mainWindow:IsA("ScrollingFrame") then
-        mainWindow.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        mainWindow.CanvasSize = UDim2.new(0, 0, 0, 0)
-        mainWindow.ScrollBarThickness = 8
-        mainWindow.BackgroundColor3 = REVIEW.RIGHT_BG
-        mainWindow.BackgroundTransparency = 0
-        mainWindow.ClipsDescendants = true
-        mainWindow.ScrollBarImageColor3 = REVIEW.CARD_STROKE
-    end
+    local slack = Instance.new("Frame")
+    slack.Name = "ScrollSlack"
+    slack.BackgroundTransparency = 1
+    slack.Size = UDim2.new(1, 0, 0, 72)
+    slack.LayoutOrder = 9999
+    slack.Parent = mainWindow
 end
 
 local function buildRankingPanel(rankingPanel, playerNames)
@@ -1627,7 +1773,7 @@ local function buildRankingPanel(rankingPanel, playerNames)
 
     local SWAP_T  = 0.15
     local rowCount = math.max(#others, 1)
-    local rowScale = math.clamp(0.86 / rowCount - 0.04, 0.18, 0.3)
+    local rowScale = math.clamp(0.86 / rowCount - 0.04, 0.24, 0.34)
 
     local title = Instance.new("TextLabel")
     title.Name = "RankTitle"
@@ -1686,30 +1832,32 @@ local function buildRankingPanel(rankingPanel, playerNames)
             st.Parent = row
 
             local rn = Instance.new("TextLabel")
-            rn.Size = UDim2.new(0, 28, 1, 0)
+            rn.Size = UDim2.new(0, REVIEW.RANK_NUM_W, 1, 0)
             rn.BackgroundTransparency = 1
             rn.Text = i .. "."
             rn.TextXAlignment = Enum.TextXAlignment.Center
             rn.Parent = row
-            applyReviewText(rn, 17, true)
-            rn.TextScaled = true
+            applyFixedLabel(rn, REVIEW.RANK_TXT, REVIEW.TITLE)
+            rn.TextWrapped = false
 
+            local avLeft = REVIEW.RANK_NUM_W + REVIEW.ICON_LEFT
             local av = makeReviewAvatar(row, REVIEW.AV_SIZE, name, 6, userIdByName[name])
             av.AnchorPoint = Vector2.new(0, 0.5)
             av.Size = UDim2.new(0, REVIEW.AV_SIZE, 0, REVIEW.AV_SIZE)
-            av.Position = UDim2.new(0, 30, 0.5, 0)
+            av.Position = UDim2.new(0, avLeft, 0.5, 0)
 
             local nl = Instance.new("TextLabel")
             nl.AnchorPoint = Vector2.new(0, 0.5)
             nl.Size = UDim2.new(0.38, 0, 1, 0)
-            nl.Position = UDim2.new(0, 30 + REVIEW.AV_SIZE + REVIEW.AV_GAP, 0.5, 0)
+            nl.Position = UDim2.new(0, avLeft + REVIEW.AV_SIZE + REVIEW.AV_GAP, 0.5, 0)
             nl.Text = name
             nl.TextXAlignment = Enum.TextXAlignment.Left
             nl.TextYAlignment = Enum.TextYAlignment.Center
             nl.TextTruncate = Enum.TextTruncate.AtEnd
             nl.Parent = row
-            applyReviewText(nl, 17, false)
-            nl.TextScaled = true
+            applyFixedLabel(nl, REVIEW.RANK_TXT, REVIEW.TEXT)
+            nl.TextWrapped = false
+            nl.TextTruncate = Enum.TextTruncate.AtEnd
 
             local as = Instance.new("Frame")
             as.Size = UDim2.new(0.28, 0, 0.72, 0)
@@ -1795,7 +1943,7 @@ local function buildRankingPanel(rankingPanel, playerNames)
     submitBtn.Text = "Submit Ranking"
     submitBtn.Font = Enum.Font.GothamBold
     submitBtn.TextScaled = false
-    submitBtn.TextSize = 15
+    submitBtn.TextSize = 22
     submitBtn.BorderSizePixel = 0
     submitBtn.Parent = rankingPanel
     addCorner(submitBtn, 8)
@@ -1809,8 +1957,9 @@ local function buildRankingPanel(rankingPanel, playerNames)
     pulse:Play()
 
     local rankSubmitted = false
+    local gen = submitGen
     submitBtn.MouseButton1Click:Connect(function()
-        if rankSubmitted then return end
+        if rankSubmitted or gen ~= submitGen then return end
         rankSubmitted = true
         pulse:Cancel()
         SubmitRanking:FireServer(rowOrder)
@@ -1830,18 +1979,48 @@ local function buildRankingPanel(rankingPanel, playerNames)
 end
 
 local function handleReview(reviewData, playerNames, totalTime)
+    reviewEpoch += 1
+    local myEpoch = reviewEpoch
+    wipeRoundInputs(true)
+    phaseArmAt = os.clock()
     showFrame(reviewFrame)
+
+    if type(reviewData) ~= "table" then
+        reviewData = {}
+    elseif reviewData[1] == nil then
+        local packed = {}
+        local i = 1
+        while true do
+            local chain = reviewData[i] or reviewData[tostring(i)]
+            if chain == nil then break end
+            packed[i] = chain
+            i += 1
+        end
+        reviewData = packed
+    end
+    for _, chain in ipairs(reviewData) do
+        if type(chain) == "table" and type(chain.entries) == "table" and chain.entries[1] == nil then
+            local packed = {}
+            local i = 1
+            while true do
+                local e = chain.entries[i] or chain.entries[tostring(i)]
+                if e == nil then break end
+                packed[i] = e
+                i += 1
+            end
+            chain.entries = packed
+        end
+    end
 
     reviewFrame.BackgroundTransparency = 1
     local grad = reviewFrame:FindFirstChildOfClass("UIGradient")
     if grad then grad.Enabled = false end
 
-    local leftPanel    = reviewFrame:FindFirstChild("LeftPanel")
-    local mainWindow   = reviewFrame:FindFirstChild("MainWindow")
-    local playersPanel = leftPanel and leftPanel:FindFirstChild("PlayersPanel")
-    local rankingPanel = leftPanel and leftPanel:FindFirstChild("RankingPanel")
-    local timer        = leftPanel and leftPanel:FindFirstChild("TimerContainer")
-        or reviewFrame:FindFirstChild("TimerContainer")
+    local leftPanel    = findDeep(reviewFrame, "LeftPanel")
+    local mainWindow   = findDeep(reviewFrame, "MainWindow")
+    local playersPanel = findDeep(reviewFrame, "PlayersPanel")
+    local rankingPanel = findDeep(reviewFrame, "RankingPanel")
+    local timer        = findDeep(reviewFrame, "TimerContainer")
 
     local panelH = 1 - REVIEW.PAD_Y - REVIEW.PAD_B
     local startX = reviewStartX()
@@ -1912,6 +2091,12 @@ local function handleReview(reviewData, playerNames, totalTime)
         rankCard.ClipsDescendants = false
     end
 
+    if albumCard and not playersPanel then
+        playersPanel = Instance.new("ScrollingFrame")
+        playersPanel.Name = "PlayersPanel"
+        playersPanel.BorderSizePixel = 0
+        playersPanel.Parent = albumCard
+    end
     if playersPanel and albumCard then
         playersPanel.Parent = albumCard
         playersPanel.BackgroundTransparency = 1
@@ -1923,6 +2108,12 @@ local function handleReview(reviewData, playerNames, totalTime)
         playersPanel.ZIndex = 4
     end
 
+    if rankCard and not rankingPanel then
+        rankingPanel = Instance.new("Frame")
+        rankingPanel.Name = "RankingPanel"
+        rankingPanel.BackgroundTransparency = 1
+        rankingPanel.Parent = rankCard
+    end
     if rankingPanel and rankCard then
         rankingPanel.Parent = rankCard
         rankingPanel.BackgroundTransparency = 1
@@ -1947,8 +2138,19 @@ local function handleReview(reviewData, playerNames, totalTime)
         mainWindow.ClipsDescendants = true
         mainWindow.ZIndex = 2
         mainWindow.ScrollBarImageColor3 = REVIEW.CARD_STROKE
-        local legacyTitle = mainWindow:FindFirstChild("AlbumTitle")
-        if legacyTitle then legacyTitle.Visible = false end
+        if mainWindow:IsA("ScrollingFrame") then
+            mainWindow.ScrollingEnabled = true
+            mainWindow.AutomaticCanvasSize = Enum.AutomaticSize.None
+            local w = math.max(math.floor(mainWindow.AbsoluteSize.X + 0.5), 1)
+            local viewH = math.max(math.floor(mainWindow.AbsoluteSize.Y + 0.5), 400)
+            mainWindow.CanvasSize = UDim2.fromOffset(w, viewH)
+            mainWindow.CanvasPosition = Vector2.new(0, 0)
+        end
+        for _, ch in ipairs(mainWindow:GetChildren()) do
+            if ch.Name == "AlbumTitle" or ch.Name == "AlbumTitleRow" or ch.Name == "AlbumList" then
+                ch:Destroy()
+            end
+        end
     end
 
     if timer then
@@ -1959,10 +2161,13 @@ local function handleReview(reviewData, playerNames, totalTime)
 
     buildRankingPanel(rankingPanel, playerNames)
 
-    if not playersPanel then return end
+    if not playersPanel then
+        warn("[Review] PlayersPanel missing")
+        return
+    end
 
     for _, c in ipairs(playersPanel:GetChildren()) do
-        if c:IsA("TextButton") or c:IsA("UIListLayout") or c:IsA("UIPadding") then c:Destroy() end
+        c:Destroy()
     end
 
     local layout = Instance.new("UIListLayout")
@@ -2032,7 +2237,15 @@ local function handleReview(reviewData, playerNames, totalTime)
         playersPanel.AutomaticCanvasSize = Enum.AutomaticSize.Y
     end
 
-    task.delay(0.25, function()
+    task.spawn(function()
+        for _ = 1, 20 do
+            if reviewEpoch ~= myEpoch then return end
+            if mainWindow and mainWindow.AbsoluteSize.X >= 20 then break end
+            RunService.Heartbeat:Wait()
+        end
+        if reviewEpoch ~= myEpoch then return end
+        RunService.Heartbeat:Wait()
+        if reviewEpoch ~= myEpoch then return end
         local ft = playersPanel:FindFirstChild("ChainTile_1")
         if ft and reviewData[1] then
             selectTile(ft, reviewData[1])
@@ -2290,6 +2503,8 @@ end
 local confettiConn = nil
 
 local function handleResults(results)
+    reviewEpoch += 1
+    wipeRoundInputs()
     showFrame(resultsFrame)
     local listFrame = resultsFrame:FindFirstChild("ResultsList")
     if not listFrame then return end
@@ -2381,11 +2596,11 @@ local function handleResults(results)
 
     local function makeSideCard(entry, place, side)
         local tile = Instance.new("Frame")
-        tile.Size = UDim2.new(0.22, 0, 0.1, 0)
+        tile.Size = UDim2.new(0.24, 0, 0.11, 0)
         tile.AnchorPoint = side == "left" and Vector2.new(0, 0) or Vector2.new(1, 0)
         tile.Position = side == "left"
-            and UDim2.new(0.02, 0, 0.86, 0)
-            or  UDim2.new(0.98, 0, 0.86, 0)
+            and UDim2.new(0.02, 0, 0.85, 0)
+            or  UDim2.new(0.98, 0, 0.85, 0)
         tile.BackgroundColor3 = Color3.fromRGB(40, 24, 90)
         tile.BorderSizePixel = 0
         tile.ZIndex = 5
@@ -2397,21 +2612,22 @@ local function handleResults(results)
         ts.Parent = tile
 
         local avS = Instance.new("ImageLabel")
-        avS.Size = UDim2.new(0.22, 0, 0.7, 0)
+        avS.Size = UDim2.new(0.78, 0, 0.78, 0)
         avS.SizeConstraint = Enum.SizeConstraint.RelativeYY
         avS.AnchorPoint = Vector2.new(0, 0.5)
         avS.Position = UDim2.new(0.04, 0, 0.5, 0)
         avS.BackgroundColor3 = Color3.fromRGB(50, 30, 100)
         avS.BorderSizePixel = 0
+        avS.ScaleType = Enum.ScaleType.Crop
         avS.Parent = tile
-        addCorner(avS, 20)
+        addCorner(avS, 8)
         task.spawn(function()
             loadAvatar(avS, entry.userId, entry.name)
         end)
 
         local nL = Instance.new("TextLabel")
-        nL.Size = UDim2.new(0.68, 0, 0.42, 0)
-        nL.Position = UDim2.new(0.3, 0, 0.08, 0)
+        nL.Size = UDim2.new(0.62, 0, 0.42, 0)
+        nL.Position = UDim2.new(0.34, 0, 0.08, 0)
         nL.BackgroundTransparency = 1
         nL.TextColor3 = Color3.fromRGB(245, 235, 255)
         nL.Text = "#" .. place .. " " .. entry.name
@@ -2422,8 +2638,8 @@ local function handleResults(results)
         nL.Parent = tile
 
         local cL = Instance.new("TextLabel")
-        cL.Size = UDim2.new(0.68, 0, 0.36, 0)
-        cL.Position = UDim2.new(0.3, 0, 0.52, 0)
+        cL.Size = UDim2.new(0.62, 0, 0.36, 0)
+        cL.Position = UDim2.new(0.34, 0, 0.52, 0)
         cL.BackgroundTransparency = 1
         cL.TextColor3 = Color3.fromRGB(255, 210, 70)
         cL.Text = "+" .. tostring(entry.reward) .. " Coins"
@@ -2548,9 +2764,14 @@ end
 local lastPhaseTime = nil
 
 GameStateChanged.OnClientEvent:Connect(function(phase, arg1, arg2, arg3, arg4)
+    if phase == "lobby" then
+        handleLobby(arg1, arg2, arg3, arg4)
+        return
+    end
+    if not takeSession(arg2) then return end
     lastPhaseTime = arg1
-    if     phase == "lobby"    then handleLobby(arg1, arg2, arg3, arg4)
-    elseif phase == "write"    then handleWrite(arg1)
+    if     phase == "write"    then
+        showFrame(writeFrame)
     elseif phase == "draw"     then
         showFrame(drawFrame)
         local pl = drawFrame:FindFirstChild("PromptLabel", true)
@@ -2571,6 +2792,7 @@ GameStateChanged.OnClientEvent:Connect(function(phase, arg1, arg2, arg3, arg4)
 end)
 
 SendRoundData.OnClientEvent:Connect(function(roundData)
+    if not takeSession(roundData and roundData.sessionId) then return end
     local phase = roundData and roundData.phase
     if     phase == "write"    then handleWrite(lastPhaseTime or Config.WRITE_TIME)
     elseif phase == "draw"     then handleDraw(lastPhaseTime or Config.DRAW_TIME, roundData)
@@ -2578,11 +2800,13 @@ SendRoundData.OnClientEvent:Connect(function(roundData)
     end
 end)
 
-SendReviewData.OnClientEvent:Connect(function(reviewData, playerNames, totalTime)
+SendReviewData.OnClientEvent:Connect(function(reviewData, playerNames, totalTime, sid)
+    if not takeSession(sid) then return end
     handleReview(reviewData, playerNames, totalTime)
 end)
 
-SendResults.OnClientEvent:Connect(function(results)
+SendResults.OnClientEvent:Connect(function(results, sid)
+    if not takeSession(sid) then return end
     handleResults(results)
 end)
 
@@ -2605,6 +2829,16 @@ UpdateSubmitCount.OnClientEvent:Connect(function(count, total)
     end
 end)
 
+SyncTimer.OnClientEvent:Connect(function(remaining, _total, sid)
+    if typeof(sid) == "number" and sid ~= activeSession then return end
+    if remaining > 0 and remaining <= 1 and pendingTimeoutSubmit then
+        if os.clock() - phaseArmAt < 1.5 then return end
+        local fn = pendingTimeoutSubmit
+        pendingTimeoutSubmit = nil
+        fn()
+    end
+end)
+
 SetQueueState.OnClientEvent:Connect(function(isQueued)
     screenGui:SetAttribute("InQueue", isQueued == true)
     local hud = screenGui:FindFirstChild("HudCoinsLabel")
@@ -2612,6 +2846,8 @@ SetQueueState.OnClientEvent:Connect(function(isQueued)
         hud.Visible = not isQueued
     end
     if not isQueued then
+        reviewEpoch += 1
+        wipeRoundInputs()
         for _, f in ipairs(allFrames) do f.Visible = false end
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     end

@@ -40,13 +40,14 @@ local drawState = {
     fillLock      = false,
 }
 
-local COLORS = {
-    Color3.fromRGB(0,0,0),     Color3.fromRGB(255,255,255),
+local COLORS = Config.DRAW_COLORS or {
+    Color3.fromRGB(0,0,0), Color3.fromRGB(255,255,255),
     Color3.fromRGB(220,50,50), Color3.fromRGB(255,140,0),
-    Color3.fromRGB(50,200,50), Color3.fromRGB(50,100,255),
-    Color3.fromRGB(160,50,255),Color3.fromRGB(0,220,200),
-    Color3.fromRGB(255,80,180),Color3.fromRGB(255,200,220),
 }
+local COLOR_RING = Config.COLOR_EQUIP_RING or Color3.fromRGB(255, 210, 40)
+local COLOR_RING_IDLE = Color3.fromRGB(50, 40, 90)
+local EQUIP_ON  = Color3.fromRGB(180, 130, 255)
+local EQUIP_OFF = Color3.fromRGB(40, 30, 90)
 local SIZES = Config.BRUSH_SIZES
 
 local paints = {}
@@ -236,16 +237,27 @@ local function ensurePaint(canvas)
 
     paint = { img = img, ei = ei, buf = buf, dirty = true }
     paints[canvas] = paint
+    canvas.Destroying:Once(function()
+        destroyPaint(canvas)
+    end)
     flushPaint(paint)
     return paint
+end
+
+local function listGet(t, i)
+    if type(t) ~= "table" then return nil end
+    return t[i] or t[tostring(i)]
 end
 
 local function rasterize(canvas, strokes)
     local paint = ensurePaint(canvas)
     if not paint then return end
     fillWhite(paint.buf)
-    if strokes then
-        for _, stroke in ipairs(strokes) do
+    if type(strokes) == "table" then
+        local i = 1
+        while i <= 4000 do
+            local stroke = listGet(strokes, i)
+            if not stroke then break end
             local r = stroke.r or 0
             local g = stroke.g or 0
             local b = stroke.b or 0
@@ -253,15 +265,24 @@ local function rasterize(canvas, strokes)
                 r, g, b = rgb255(stroke.color)
             end
             local pts = stroke.points
-            if stroke.kind == "fill" and pts and pts[1] then
-                floodFill(paint.buf, pts[1].x, pts[1].y, r, g, b)
-            elseif pts and #pts > 0 then
+            local p1 = pts and listGet(pts, 1)
+            if stroke.kind == "fill" and p1 then
+                floodFill(paint.buf, p1.x, p1.y, r, g, b)
+            elseif p1 then
                 local radius = math.max(1, (stroke.size or 4) * 0.5)
-                stampCircle(paint.buf, pts[1].x, pts[1].y, radius, r, g, b)
-                for i = 2, #pts do
-                    stampLine(paint.buf, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, radius, r, g, b)
+                stampCircle(paint.buf, p1.x, p1.y, radius, r, g, b)
+                local j = 2
+                while j <= 8000 do
+                    local p = listGet(pts, j)
+                    if not p then break end
+                    local prev = listGet(pts, j - 1)
+                    if prev then
+                        stampLine(paint.buf, prev.x, prev.y, p.x, p.y, radius, r, g, b)
+                    end
+                    j += 1
                 end
             end
+            i += 1
         end
     end
     flushPaint(paint)
@@ -339,14 +360,13 @@ local function setTool(tool)
     if not panel then return end
     local fillBtn = panel:FindFirstChild("FillBtn")
     if fillBtn and fillBtn:IsA("GuiObject") then
-        fillBtn.BackgroundColor3 = tool == "fill"
-            and Color3.fromRGB(180, 130, 255)
-            or Color3.fromRGB(40, 30, 90)
+        fillBtn.BackgroundColor3 = tool == "fill" and EQUIP_ON or EQUIP_OFF
     end
-    if tool == "fill" then
-        for j = 1, #SIZES do
-            local b = panel:FindFirstChild("SizeBtn"..j)
-            if b then b.BackgroundColor3 = Color3.fromRGB(40, 30, 90) end
+    for j = 1, #SIZES do
+        local b = panel:FindFirstChild("SizeBtn"..j)
+        if b then
+            local on = tool ~= "fill" and SIZES[j] == drawState.currentSize
+            b.BackgroundColor3 = on and EQUIP_ON or EQUIP_OFF
         end
     end
 end
@@ -372,7 +392,6 @@ local function applyFill(x, y)
         })
         drawState.undoStack = {}
     end
-    setTool("brush")
     task.delay(0.12, function()
         drawState.fillLock = false
     end)
@@ -462,6 +481,7 @@ end
 local function autoSubmitIfNeeded()
     if not drawState.active or drawState.submitted then return end
     if not drawState.canvas then return end
+    if os.clock() - (drawState.armedAt or 0) < 1.5 then return end
     drawState.submitted = true
     drawState.active = false
     endStroke()
@@ -489,6 +509,83 @@ local function setupCanvas()
     canvas.Interactable = false
     ensurePaint(canvas)
 
+    local function colorRing(btn, selected)
+        if not (btn and btn:IsA("GuiObject")) then return end
+        local st = btn:FindFirstChild("EquipRing")
+        if not (st and st:IsA("UIStroke")) then
+            st = Instance.new("UIStroke")
+            st.Name = "EquipRing"
+            st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            st.Parent = btn
+        end
+        btn.BorderSizePixel = 0
+        if selected then
+            st.Color = COLOR_RING
+            st.Thickness = 4
+            st.Transparency = 0
+        else
+            st.Color = COLOR_RING_IDLE
+            st.Thickness = 1
+            st.Transparency = 0.35
+        end
+    end
+
+    local function selectColor(i)
+        if not COLORS[i] then return end
+        drawState.currentColor = COLORS[i]
+        for j = 1, #COLORS do
+            local b = toolPanel:FindFirstChild("ColorBtn_" .. j)
+            colorRing(b, j == i)
+        end
+    end
+
+    local template = toolPanel:FindFirstChild("ColorBtn_1")
+    if template and template:IsA("GuiObject") then
+        local BTN, GAP = 56, 6
+        local y0 = template.Position.Y.Offset
+        local oldMax = 0
+        for i = 1, 40 do
+            if toolPanel:FindFirstChild("ColorBtn_" .. i) then
+                oldMax = i
+            else
+                break
+            end
+        end
+        local oldRows = math.max(1, math.ceil(oldMax / 2))
+        local newRows = math.ceil(#COLORS / 2)
+        for i = 1, #COLORS do
+            local btn = toolPanel:FindFirstChild("ColorBtn_" .. i)
+            if not btn then
+                btn = template:Clone()
+                btn.Name = "ColorBtn_" .. i
+                btn.Parent = toolPanel
+            end
+            btn.BackgroundColor3 = COLORS[i]
+            local leftCol = (i % 2 == 1)
+            local row = math.ceil(i / 2)
+            btn.AnchorPoint = leftCol and Vector2.new(1, 0) or Vector2.new(0, 0)
+            btn.Position = UDim2.new(0.5, leftCol and -GAP or GAP, 0, y0 + (row - 1) * (BTN + GAP))
+            btn.Size = UDim2.fromOffset(BTN, BTN)
+            colorRing(btn, i == 1)
+        end
+        for i = #COLORS + 1, oldMax do
+            local extra = toolPanel:FindFirstChild("ColorBtn_" .. i)
+            if extra then extra:Destroy() end
+        end
+        local dy = (newRows - oldRows) * (BTN + GAP)
+        if dy > 0 then
+            local cut = y0 + oldRows * (BTN + GAP) - 2
+            for _, ch in ipairs(toolPanel:GetChildren()) do
+                if ch:IsA("GuiObject") and not string.match(ch.Name, "^ColorBtn_") then
+                    if ch.Position.Y.Offset >= cut then
+                        ch.Position = ch.Position + UDim2.fromOffset(0, dy)
+                    end
+                end
+            end
+        end
+        drawState.currentColor = COLORS[1]
+    end
+
     local largeBtn = toolPanel:FindFirstChild("SizeBtn"..#SIZES)
     local fillBtn = toolPanel:FindFirstChild("FillBtn")
     local SHIFT = 0
@@ -501,7 +598,7 @@ local function setupCanvas()
         if fillBtn then fillBtn:Destroy() end
         fillBtn = largeBtn:Clone()
         fillBtn.Name = "FillBtn"
-        fillBtn.BackgroundColor3 = Color3.fromRGB(40, 30, 90)
+        fillBtn.BackgroundColor3 = EQUIP_OFF
         fillBtn.Position = UDim2.new(
             largeBtn.Position.X.Scale, largeBtn.Position.X.Offset,
             largeBtn.Position.Y.Scale, largeBtn.Position.Y.Offset + SHIFT
@@ -537,7 +634,7 @@ local function setupCanvas()
         fillBtn.Name = "FillBtn"
         fillBtn.Size = UDim2.new(1, -12, 0, 36)
         fillBtn.Position = UDim2.new(0, 6, 1, -44)
-        fillBtn.BackgroundColor3 = Color3.fromRGB(40, 30, 90)
+        fillBtn.BackgroundColor3 = EQUIP_OFF
         fillBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
         fillBtn.Font = Enum.Font.GothamBold
         fillBtn.TextSize = 16
@@ -581,6 +678,8 @@ local function setupCanvas()
         clearBtn.Font = Enum.Font.GothamBold
     end
 
+    setTool(drawState.tool)
+
     fillBtn = toolPanel:FindFirstChild("FillBtn")
     if fillBtn then
         fillBtn.MouseButton1Click:Connect(function()
@@ -592,13 +691,7 @@ local function setupCanvas()
         local btn = toolPanel:FindFirstChild("ColorBtn_" .. i)
         if btn then
             btn.MouseButton1Click:Connect(function()
-                drawState.currentColor = COLORS[i]
-                setTool("brush")
-                for j = 1, #COLORS do
-                    local b = toolPanel:FindFirstChild("ColorBtn_"..j)
-                    if b then b.BorderSizePixel = 0 end
-                end
-                btn.BorderSizePixel = 3
+                selectColor(i)
             end)
         end
     end
@@ -609,11 +702,6 @@ local function setupCanvas()
             btn.MouseButton1Click:Connect(function()
                 drawState.currentSize = sz
                 setTool("brush")
-                for j = 1, #SIZES do
-                    local b = toolPanel:FindFirstChild("SizeBtn"..j)
-                    if b then b.BackgroundColor3 = Color3.fromRGB(40,30,90) end
-                end
-                btn.BackgroundColor3 = Color3.fromRGB(180,130,255)
             end)
         end
     end
@@ -650,7 +738,7 @@ local function setupCanvas()
     local submitBtn = df:FindFirstChild("SubmitButton")
     if submitBtn then
         submitBtn.MouseButton1Click:Connect(function()
-            if drawState.submitted then return end
+            if not drawState.active or drawState.submitted then return end
             drawState.submitted = true
             drawState.active = false
             endStroke()
@@ -731,32 +819,60 @@ local function setupCanvas()
 end
 
 DrawActiveEvent.Event:Connect(function(active)
-    drawState.active        = active
+    drawState.active = active == true
+    if not active then
+        if drawState.canvas then
+            destroyPaint(drawState.canvas)
+        end
+        drawState.strokes = {}
+        drawState.currentStroke = nil
+        drawState.isDrawing = false
+        drawState.submitted = true
+        drawState.activeTouchId = nil
+        return
+    end
     drawState.strokes       = {}
     drawState.undoStack     = {}
     drawState.submitted     = false
     drawState.activeTouchId = nil
     drawState.totalPoints   = 0
     drawState.fillLock      = false
+    drawState.armedAt       = os.clock()
     drawState.tool          = "brush"
     setTool("brush")
     if drawState.canvas then
         clearCanvas(drawState.canvas)
+        local df = drawState.canvas.Parent
+        local submitBtn = df and df:FindFirstChild("SubmitButton")
+        if submitBtn and submitBtn:IsA("TextButton") then
+            submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
+            submitBtn.Text = "Submit"
+        end
     end
 end)
 
-RenderStrokesEvent.Event:Connect(function(canvas, strokeData)
+RenderStrokesEvent.Event:Connect(function(canvas, strokeData, gen)
+    if not canvas then return end
     task.spawn(function()
         for _ = 1, 16 do
+            if not canvas.Parent then return end
+            if gen ~= nil and canvas:GetAttribute("PaintGen") ~= gen then return end
             if canvas.AbsoluteSize.X > 4 and canvas.AbsoluteSize.Y > 4 then break end
             task.wait(0.05)
         end
+        if not canvas.Parent then return end
+        if gen ~= nil and canvas:GetAttribute("PaintGen") ~= gen then return end
+        destroyPaint(canvas)
         rasterize(canvas, strokeData)
     end)
 end)
 
-SyncTimer.OnClientEvent:Connect(function(remaining, _total)
-    if remaining == 0 then
+SyncTimer.OnClientEvent:Connect(function(remaining, _total, sid)
+    local cur = LocalPlayer:GetAttribute("GameSessionId")
+    if typeof(sid) == "number" and typeof(cur) == "number" and sid ~= cur then
+        return
+    end
+    if remaining > 0 and remaining <= 1 then
         autoSubmitIfNeeded()
     end
 end)
