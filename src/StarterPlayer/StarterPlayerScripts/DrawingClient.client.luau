@@ -213,6 +213,8 @@ local function ensurePaint(canvas)
     img.Size = UDim2.fromScale(1, 1)
     img.Position = UDim2.fromScale(0, 0)
     img.ZIndex = 2
+    img.Active = false
+    img.Interactable = false
     img.ScaleType = Enum.ScaleType.Stretch
     img.Parent = canvas
     canvas.ClipsDescendants = true
@@ -320,6 +322,34 @@ end
 
 local lastX, lastY = nil, nil
 local endStroke
+local commitStroke
+
+commitStroke = function()
+    if drawState.isDrawing and drawState.currentStroke then
+        table.insert(drawState.strokes, drawState.currentStroke)
+    end
+    drawState.currentStroke = nil
+    drawState.isDrawing     = false
+    lastX, lastY            = nil, nil
+end
+
+local function setTool(tool)
+    drawState.tool = tool
+    local panel = drawState.toolPanel
+    if not panel then return end
+    local fillBtn = panel:FindFirstChild("FillBtn")
+    if fillBtn and fillBtn:IsA("GuiObject") then
+        fillBtn.BackgroundColor3 = tool == "fill"
+            and Color3.fromRGB(180, 130, 255)
+            or Color3.fromRGB(40, 30, 90)
+    end
+    if tool == "fill" then
+        for j = 1, #SIZES do
+            local b = panel:FindFirstChild("SizeBtn"..j)
+            if b then b.BackgroundColor3 = Color3.fromRGB(40, 30, 90) end
+        end
+    end
+end
 
 local function applyFill(x, y)
     if drawState.fillLock then return end
@@ -327,7 +357,7 @@ local function applyFill(x, y)
     if not canvas then return end
     local paint = ensurePaint(canvas)
     if not paint then return end
-    endStroke()
+    commitStroke()
     drawState.fillLock = true
     local r, g, b = rgb255(drawState.currentColor)
     local ok = floodFill(paint.buf, x, y, r, g, b)
@@ -342,6 +372,7 @@ local function applyFill(x, y)
         })
         drawState.undoStack = {}
     end
+    setTool("brush")
     task.delay(0.12, function()
         drawState.fillLock = false
     end)
@@ -411,17 +442,12 @@ local function continueStroke(x, y)
 end
 
 endStroke = function()
-    if drawState.isDrawing and drawState.currentStroke then
-        table.insert(drawState.strokes, drawState.currentStroke)
-        drawState.currentStroke = nil
-        drawState.isDrawing     = false
-        lastX, lastY            = nil, nil
-        drawState.activeTouchId = nil
-        local paint = drawState.canvas and paints[drawState.canvas]
-        if paint then
-            flushPaint(paint)
-            paint.dirty = false
-        end
+    commitStroke()
+    drawState.activeTouchId = nil
+    local paint = drawState.canvas and paints[drawState.canvas]
+    if paint and paint.dirty then
+        flushPaint(paint)
+        paint.dirty = false
     end
 end
 
@@ -448,24 +474,6 @@ local function autoSubmitIfNeeded()
     end
 end
 
-local function setTool(tool)
-    drawState.tool = tool
-    local panel = drawState.toolPanel
-    if not panel then return end
-    local fillBtn = panel:FindFirstChild("FillBtn")
-    if fillBtn and fillBtn:IsA("GuiObject") then
-        fillBtn.BackgroundColor3 = tool == "fill"
-            and Color3.fromRGB(180, 130, 255)
-            or Color3.fromRGB(40, 30, 90)
-    end
-    if tool == "fill" then
-        for j = 1, #SIZES do
-            local b = panel:FindFirstChild("SizeBtn"..j)
-            if b then b.BackgroundColor3 = Color3.fromRGB(40, 30, 90) end
-        end
-    end
-end
-
 local function setupCanvas()
     local sg = PlayerGui:WaitForChild(Config.MAIN_GUI_NAME, 10)
     if not sg then return end
@@ -477,6 +485,8 @@ local function setupCanvas()
 
     drawState.canvas = canvas
     drawState.toolPanel = toolPanel
+    canvas.Active = false
+    canvas.Interactable = false
     ensurePaint(canvas)
 
     local largeBtn = toolPanel:FindFirstChild("SizeBtn"..#SIZES)
@@ -539,7 +549,19 @@ local function setupCanvas()
         corner.Parent = fillBtn
     end
 
-    toolPanel.Size = UDim2.new(0, math.max(toolPanel.Size.X.Offset, 150), 0, math.max(toolPanel.Size.Y.Offset, 560) + SHIFT)
+    if toolPanel:IsA("ScrollingFrame") then
+        local maxB = 0
+        for _, ch in ipairs(toolPanel:GetChildren()) do
+            if ch:IsA("GuiObject") then
+                maxB = math.max(maxB, ch.Position.Y.Offset + ch.Size.Y.Offset)
+            end
+        end
+        toolPanel.ScrollingEnabled = true
+        toolPanel.AutomaticCanvasSize = Enum.AutomaticSize.None
+        toolPanel.CanvasSize = UDim2.new(0, 0, 0, maxB + 24)
+        toolPanel.ScrollBarThickness = 8
+        toolPanel.VerticalScrollBarInset = Enum.ScrollBarInset.None
+    end
     local undoBtn = toolPanel:FindFirstChild("UndoBtn")
     if undoBtn and undoBtn:IsA("TextButton") then
         undoBtn.Text = "< Undo"
@@ -571,6 +593,7 @@ local function setupCanvas()
         if btn then
             btn.MouseButton1Click:Connect(function()
                 drawState.currentColor = COLORS[i]
+                setTool("brush")
                 for j = 1, #COLORS do
                     local b = toolPanel:FindFirstChild("ColorBtn_"..j)
                     if b then b.BorderSizePixel = 0 end
@@ -637,9 +660,10 @@ local function setupCanvas()
         end)
     end
 
-    UserInputService.InputBegan:Connect(function(input, processed)
-        if processed or not drawState.active then return end
+    UserInputService.InputBegan:Connect(function(input, _processed)
+        if not drawState.active then return end
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if drawState.activeTouchId then return end
         if overGui(toolPanel, input.Position) then return end
         local x, y = getCanvasPos(input.Position, canvas, false)
         if not x then return end
@@ -647,18 +671,19 @@ local function setupCanvas()
     end)
 
     UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            endStroke()
-        end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if drawState.activeTouchId then return end
+        endStroke()
     end)
 
     RunService.RenderStepped:Connect(function()
-        if not drawState.active or drawState.activeTouchId then return end
+        if not drawState.active then return end
         local paint = paints[canvas]
         if paint and paint.dirty then
             flushPaint(paint)
             paint.dirty = false
         end
+        if drawState.activeTouchId then return end
         if not drawState.isDrawing then return end
         if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then return end
         local inset = GuiService:GetGuiInset()
@@ -668,22 +693,33 @@ local function setupCanvas()
         continueStroke(x, y)
     end)
 
-    UserInputService.TouchStarted:Connect(function(input, processed)
-        if processed or not drawState.active then return end
+    UserInputService.TouchStarted:Connect(function(input, _processed)
+        if not drawState.active then return end
         if drawState.activeTouchId ~= nil then return end
         if overGui(toolPanel, input.Position) then return end
         local x, y = getCanvasPos(input.Position, canvas, false)
         if not x then return end
         drawState.activeTouchId = input
         beginStroke(x, y)
+        local paint = paints[canvas]
+        if paint and paint.dirty then
+            flushPaint(paint)
+            paint.dirty = false
+        end
     end)
 
-    UserInputService.TouchMoved:Connect(function(input, processed)
-        if not drawState.active or not drawState.isDrawing then return end
+    UserInputService.TouchMoved:Connect(function(input, _processed)
+        if not drawState.active then return end
         if input ~= drawState.activeTouchId then return end
+        if not drawState.isDrawing then return end
         local x, y = getCanvasPos(input.Position, canvas, true)
         if not x then return end
         continueStroke(x, y)
+        local paint = paints[canvas]
+        if paint and paint.dirty then
+            flushPaint(paint)
+            paint.dirty = false
+        end
     end)
 
     UserInputService.TouchEnded:Connect(function(input)

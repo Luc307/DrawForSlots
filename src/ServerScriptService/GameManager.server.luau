@@ -659,6 +659,7 @@ local ACTION_BY_NAME = {
     ["5ReelSlots"] = { kind = "casino", page = "slots2" },
     ["Diamond Mines"] = { kind = "casino", page = "mines" },
     ["3 Player Game"] = { kind = "queue", size = 3 },
+    ["4 Player Game"] = { kind = "queue", size = 4 },
     ["5 Player Game"] = { kind = "queue", size = 5 },
 }
 

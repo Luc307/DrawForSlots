@@ -24,11 +24,11 @@ CasinoUiTheme.THEME = {
 	TILE_PLINKO = Color3.fromRGB(48, 210, 150),
 	TILE_WHEEL = Color3.fromRGB(255, 90, 120),
 	TILE_MINES = Color3.fromRGB(70, 180, 255),
-	TEXT_MIN = 16,
+	TEXT_MIN = 10,
 	TEXT_MAX = 26,
-	TITLE_MIN = 22,
-	TITLE_MAX = 40,
-	BTN_MIN = 16,
+	TITLE_MIN = 12,
+	TITLE_MAX = 28,
+	BTN_MIN = 10,
 	BTN_MAX = 28,
 	RESULT_BG = Color3.fromRGB(12, 18, 40),
 	RESULT_WIN_BG = Color3.fromRGB(16, 58, 40),
@@ -68,14 +68,45 @@ function CasinoUiTheme.fitText(obj, minSize, maxSize)
 		return
 	end
 	obj.TextScaled = true
-	obj.TextWrapped = false
+	local t = obj.Text or ""
+	obj.TextWrapped = #t > 10
+	obj.TextTruncate = Enum.TextTruncate.AtEnd
 	local c = obj:FindFirstChildOfClass("UITextSizeConstraint")
 	if not c then
 		c = Instance.new("UITextSizeConstraint")
 		c.Parent = obj
 	end
-	c.MinTextSize = minSize or THEME.TEXT_MIN
-	c.MaxTextSize = maxSize or THEME.TEXT_MAX
+	local wantMin = minSize or THEME.TEXT_MIN
+	local wantMax = maxSize or THEME.TEXT_MAX
+	local function applyCap()
+		local h = obj.AbsoluteSize.Y
+		local w = obj.AbsoluteSize.X
+		local floor = 8
+		local minUse = wantMin
+		local maxUse = wantMax
+		if h > 2 then
+			minUse = math.min(minUse, math.max(floor, math.floor(h * 0.45)))
+			maxUse = math.min(maxUse, math.max(minUse, math.floor(h * 0.78)))
+		end
+		if w > 2 then
+			local n = math.max(#(obj.Text or ""), 1)
+			local byW = math.floor(w / (n * 0.42))
+			if byW > 0 then
+				maxUse = math.min(maxUse, math.max(minUse, byW))
+			end
+		end
+		if maxUse < minUse then
+			minUse = maxUse
+		end
+		c.MinTextSize = minUse
+		c.MaxTextSize = maxUse
+	end
+	applyCap()
+	if obj:GetAttribute("FitCapWired") ~= true then
+		obj:SetAttribute("FitCapWired", true)
+		obj:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyCap)
+		obj:GetPropertyChangedSignal("Text"):Connect(applyCap)
+	end
 	return c
 end
 
@@ -153,8 +184,9 @@ function CasinoUiTheme.ensureGameTitle(page: Frame, text: string)
 		title.Visible = true
 		title.ZIndex = 55
 		title.AnchorPoint = Vector2.new(0.5, 0)
-		title.Position = UDim2.new(0.5, 0, 0.025, 0)
-		title.Size = UDim2.new(0.7, 0, 0.06, 0)
+		title.Position = UDim2.new(0.5, 0, 0.02, 0)
+		title.Size = UDim2.new(0.62, 0, 0.08, 0)
+		title.ClipsDescendants = true
 		title.TextXAlignment = Enum.TextXAlignment.Center
 		title.TextYAlignment = Enum.TextYAlignment.Center
 		CasinoUiTheme.styleTitle(title)

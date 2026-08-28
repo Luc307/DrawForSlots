@@ -1,8 +1,6 @@
 -- Validates Studio preexisting assets. No runtime Instance.new.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
-local SoundService = game:GetService("SoundService")
-
 local REQUIRED_SOUNDS = { "Lobby", "RewardBasic", "RewardMid", "RewardBad", "Jackpot", "Click" }
 local REQUIRED_SIGNALS = {
 	"DrawActiveEvent",
@@ -12,7 +10,7 @@ local REQUIRED_SIGNALS = {
 	"ShowPage",
 	"SpinStateChanged",
 }
-local QUEUE_BUTTONS = { "3 Player Game", "5 Player Game" }
+local QUEUE_BUTTONS = { "3 Player Game", "4 Player Game", "5 Player Game" }
 local CASINO_BUTTONS = { "LuckyWheel", "Plinko", "1RowSlots", "5ReelSlots", "Diamond Mines" }
 
 local function need(parent: Instance?, name: string, className: string?): boolean
@@ -55,7 +53,6 @@ if signals then
 end
 
 need(StarterGui, "ShopGui", "ScreenGui")
-need(SoundService, "GameMusic", "Folder")
 
 local lobby = workspace:FindFirstChild("Floating Lobby")
 if not lobby then

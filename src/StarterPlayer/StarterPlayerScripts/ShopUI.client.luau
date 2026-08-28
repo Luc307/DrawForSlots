@@ -18,7 +18,7 @@ local CLICK_MAX_DIST = 32
 
 -- Responsive layout: game panel fills most of screen
 local REF_VIEWPORT_SHORT = 720
-local MIN_UI_SCALE = 0.78
+local MIN_UI_SCALE = 0.55
 local MAX_UI_SCALE = 1.0
 local MOBILE_BREAKPOINT = 700
 local CARD_ASPECT = 1.33
@@ -31,10 +31,10 @@ local CARD_POS_HIDE = UDim2.new(0.5, 0, 0.68, 0)
 local BADGE_SIZE = UDim2.new(0, 180, 0, 44)
 local CASINO_MAX_SIZE = Vector2.new(1500, 1000)
 local CASINO_MIN_SIZE = Vector2.new(360, 280)
-local GAME_AREA_TOP = 0.14
-local GAME_AREA_HEIGHT = 0.58
-local CONTROLS_TOP = 0.76
-local CONTROLS_HEIGHT = 0.18
+local GAME_AREA_TOP = 0.16
+local GAME_AREA_HEIGHT = 0.54
+local CONTROLS_TOP = 0.78
+local CONTROLS_HEIGHT = 0.16
 
 -- ── Wait for pre-built ShopGui ────────────────────────────
 local sg       = pGui:WaitForChild("ShopGui")
@@ -792,6 +792,7 @@ local function applyResponsiveLayout()
             bet.Size = UDim2.new(0.42, 0, CTRL_H * 0.85, 0)
             bet.Position = UDim2.new(PAD + 0.02, 0, S1_CTRL_TOP + CTRL_H * 0.5, 0)
             bet.AnchorPoint = Vector2.new(0, 0.5)
+            bet.ClipsDescendants = true
             for _, child in ipairs(bet:GetChildren()) do
                 if child:IsA('TextLabel') or child:IsA('TextButton') or child:IsA('TextBox') then
                     fitText(child, THEME.TEXT_MIN, THEME.TEXT_MAX)

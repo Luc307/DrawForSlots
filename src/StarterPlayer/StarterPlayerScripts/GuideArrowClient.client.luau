@@ -10,10 +10,9 @@ local RequestOpenUI = Signals:WaitForChild("RequestOpenUI") :: BindableEvent
 
 local player = Players.LocalPlayer
 
-local BUTTON_5P = "5 Player Game"
-local BUTTON_3P = "3 Player Game"
-local BUTTON_CASINO = "Diamond Mines"
-local CASINO_PAGE = "mines"
+local BUTTON_4P = "4 Player Game"
+local BUTTON_CASINO = "Plinko"
+local CASINO_PAGE = "slots3"
 local ARROW_TEMPLATE_PATH = { "Vfx", "GuideArrow" }
 local ARROW_NEAR_HIDE_DISTANCE = 4
 local SPAWN_INTERVAL = 0.12
@@ -32,7 +31,7 @@ type ArrowState = {
 	progress: number,
 }
 
-local targetButtonName = BUTTON_5P
+local targetButtonName = BUTTON_4P
 local isQueued = false
 local finishedGameThisSession = false
 local casinoMenuOpenedThisSession = false
@@ -263,7 +262,7 @@ SetQueueState.OnClientEvent:Connect(function(queued)
 	if queued then
 		clearAllArrows()
 	elseif wasQueued and not finishedGameThisSession then
-		targetButtonName = BUTTON_3P
+		targetButtonName = BUTTON_4P
 	end
 end)
 

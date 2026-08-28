@@ -38,6 +38,11 @@ local JOB_STYLES: { [string]: JobStyle } = {
 		bodyColor = Color3.fromRGB(45, 95, 180),
 		labelColor = Color3.fromRGB(120, 180, 255),
 	},
+	queue4 = {
+		limbColor = Color3.fromRGB(202, 203, 209),
+		bodyColor = Color3.fromRGB(95, 55, 160),
+		labelColor = Color3.fromRGB(180, 140, 255),
+	},
 	queue5 = {
 		limbColor = Color3.fromRGB(202, 203, 209),
 		bodyColor = Color3.fromRGB(30, 140, 95),

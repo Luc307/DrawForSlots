@@ -2,8 +2,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local SoundService = game:GetService("SoundService")
-
 local LOBBY_VOLUME = 0.22
 local MUSIC_FADE_TIME = 0.7
 local INTRO_FADE_IN_TIME = 1.4
@@ -13,25 +11,8 @@ local SoundController = {}
 local soundsFolder = ReplicatedStorage:WaitForChild("Sounds")
 local clickSound = soundsFolder:WaitForChild("Click") :: Sound
 
-local musicFolder = SoundService:WaitForChild("GameMusic") :: Folder
-
-local function adoptMusic(template: Sound): Sound
-	local existing = musicFolder:FindFirstChild(template.Name)
-	if existing and existing:IsA("Sound") then
-		existing.SoundId = template.SoundId
-		existing.Looped = true
-		return existing
-	end
-	-- Clone template Sound into preexisting GameMusic folder (per-session play instance)
-	local clone = template:Clone()
-	clone.Name = template.Name
-	clone.Looped = true
-	clone.Volume = 0
-	clone.Parent = musicFolder
-	return clone
-end
-
-local lobbySound = adoptMusic(soundsFolder:WaitForChild("Lobby") :: Sound)
+local lobbySound = soundsFolder:WaitForChild("Lobby") :: Sound
+lobbySound.Looped = true
 lobbySound.Volume = 0
 
 local started = false

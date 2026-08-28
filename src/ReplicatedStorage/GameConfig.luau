@@ -1,6 +1,6 @@
 local GameConfig = {}
 
-GameConfig.QUEUE_SIZES = {3, 5}
+GameConfig.QUEUE_SIZES = {3, 4, 5}
 GameConfig.QUEUE_START_DELAY = 3
 
 GameConfig.BUTTON_STOP_SPEED = 1
@@ -22,9 +22,12 @@ GameConfig.MAIN_GUI_NAME = "DrawForSlotsGui"
 GameConfig.INTRO_ENABLED = true
 GameConfig.TESTING_GIVE_COINS = false
 GameConfig.TESTING_COINS_AMOUNT = 1000
-GameConfig.PODIUM_DANCE_R15 = { "507771019", "507776043", "507776720" }
-GameConfig.PODIUM_DANCE_R6 = { "182435998", "182436842", "182436935" }
-GameConfig.PODIUM_DANCE_1 = ""
-GameConfig.PODIUM_DANCE_2 = ""
-GameConfig.PODIUM_DANCE_3 = ""
+GameConfig.UI_REF_W = 1920
+GameConfig.UI_REF_H = 1080
+GameConfig.UI_SCALE_MIN = 0.5
+GameConfig.UI_SCALE_MAX = 1.2
+-- R15 KeyframeSequence names in ServerStorage.RBX_ANIMSAVES.Dummy
+GameConfig.PODIUM_DANCE_1 = "Take The L"
+GameConfig.PODIUM_DANCE_2 = "Ride The Pony"
+GameConfig.PODIUM_DANCE_3 = "Pop Lock"
 return GameConfig

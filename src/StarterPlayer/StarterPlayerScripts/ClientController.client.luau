@@ -2,7 +2,11 @@ local Players             = game:GetService("Players")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
 local UserInputService    = game:GetService("UserInputService")
 local TweenService        = game:GetService("TweenService")
+local RunService          = game:GetService("RunService")
+local GuiService          = game:GetService("GuiService")
+local AnimationClipProvider = game:GetService("AnimationClipProvider")
 local Config              = require(ReplicatedStorage:WaitForChild("GameConfig"))
+local UiScaler            = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("UiScaler"))
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 local Remotes           = ReplicatedStorage:WaitForChild("Remotes")
@@ -22,6 +26,44 @@ local ReturnToLobby     = Remotes:WaitForChild("ReturnToLobby")
 UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 
 local screenGui    = PlayerGui:WaitForChild(Config.MAIN_GUI_NAME)
+UiScaler.bind(screenGui)
+
+local function killTouchGui(gui)
+    if not gui then return end
+    if gui:IsA("LayerCollector") then
+        gui.Enabled = false
+    end
+end
+local function disableTouchControls()
+    pcall(function()
+        GuiService.TouchControlsEnabled = false
+    end)
+    for _, child in ipairs(PlayerGui:GetChildren()) do
+        if child.Name == "TouchGui" then
+            killTouchGui(child)
+        end
+    end
+end
+disableTouchControls()
+pcall(function()
+    GuiService:GetPropertyChangedSignal("TouchControlsEnabled"):Connect(function()
+        if GuiService.TouchControlsEnabled then
+            GuiService.TouchControlsEnabled = false
+        end
+    end)
+end)
+PlayerGui.ChildAdded:Connect(function(child)
+    if child.Name == "TouchGui" then
+        killTouchGui(child)
+        if child:IsA("LayerCollector") then
+            child:GetPropertyChangedSignal("Enabled"):Connect(function()
+                if child.Enabled then
+                    child.Enabled = false
+                end
+            end)
+        end
+    end
+end)
 local lobbyFrame   = screenGui:WaitForChild("LobbyFrame")
 local writeFrame   = screenGui:WaitForChild("WriteFrame")
 local drawFrame    = screenGui:WaitForChild("DrawFrame")
@@ -37,8 +79,8 @@ local CANVAS_H = Config.CANVAS_H
 local REVIEW = {
     PANEL_W = 0.38,
     GAP = 0.05,
-    PAD_Y = 72,
-    PAD_B = 72,
+    PAD_Y = 0.09,
+    PAD_B = 0.1,
     CORNER = 16,
     CARD_BG = Color3.fromRGB(118, 98, 195),
     CARD_BG2 = Color3.fromRGB(108, 88, 188),
@@ -54,6 +96,8 @@ local REVIEW = {
     ENTRY = Color3.fromRGB(135, 115, 215),
     AVATAR = Color3.fromRGB(90, 70, 160),
     BTN_W = 36,
+    AV_SIZE = 52,
+    AV_GAP = 6,
 }
 local submitGen = 0
 
@@ -97,6 +141,39 @@ local function applyReviewText(lbl, size, useTitleColor)
     lbl.Font = Enum.Font.GothamBold
     lbl.TextSize = size
     lbl.TextColor3 = useTitleColor and REVIEW.TITLE or REVIEW.TEXT
+    lbl.TextScaled = true
+    lbl.TextWrapped = true
+    lbl.TextTruncate = Enum.TextTruncate.None
+    local cap = lbl:FindFirstChildOfClass("UITextSizeConstraint")
+    if not cap then
+        cap = Instance.new("UITextSizeConstraint")
+        cap.Parent = lbl
+    end
+    local wantMax = size
+    local function applyCap()
+        local h = lbl.AbsoluteSize.Y
+        local w = lbl.AbsoluteSize.X
+        local maxUse = wantMax
+        local minUse = 8
+        if h > 2 then
+            maxUse = math.min(wantMax, math.max(8, math.floor(h * 0.75)))
+        end
+        local n = math.max(#(lbl.Text or ""), 1)
+        if w > 2 then
+            local byW = math.floor(w / math.max(n * 0.28, 4))
+            if byW > 0 then
+                maxUse = math.min(maxUse, math.max(8, byW))
+            end
+        end
+        cap.MinTextSize = minUse
+        cap.MaxTextSize = math.max(minUse, maxUse)
+    end
+    applyCap()
+    if lbl:GetAttribute("HdrFitWired") ~= true then
+        lbl:SetAttribute("HdrFitWired", true)
+        lbl:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyCap)
+        lbl:GetPropertyChangedSignal("Text"):Connect(applyCap)
+    end
     local stroke = lbl:FindFirstChildOfClass("UIStroke")
     if not stroke then
         stroke = Instance.new("UIStroke")
@@ -107,26 +184,41 @@ local function applyReviewText(lbl, size, useTitleColor)
     stroke.Transparency = 0.2
 end
 
+local function fitHeaderLabel(lbl, maxSize)
+    if not lbl then
+        return
+    end
+    lbl.TextScaled = true
+    lbl.TextWrapped = true
+    lbl.TextTruncate = Enum.TextTruncate.None
+    lbl.TextXAlignment = Enum.TextXAlignment.Center
+    lbl.TextYAlignment = Enum.TextYAlignment.Center
+    applyReviewText(lbl, maxSize or 36, true)
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+end
+
 local function styleReviewTimer(timer, midX)
     timer.BackgroundTransparency = 1
     timer.BorderSizePixel = 0
     timer.ZIndex = 20
     timer.AnchorPoint = Vector2.new(0.5, 1)
-    timer.Position = UDim2.new(midX or 0.5, 0, 1, -10)
-    timer.Size = UDim2.new(0, 220, 0, 84)
+    timer.Position = UDim2.new(midX or 0.5, 0, 0.985, 0)
+    timer.Size = UDim2.new(0.2, 0, 0.09, 0)
 
     local timeLbl = timer:FindFirstChild("TimeLabel")
     local submitLbl = timer:FindFirstChild("SubmitLabel")
     if timeLbl and submitLbl then
         timeLbl.AnchorPoint = Vector2.new(0.5, 0)
-        timeLbl.Position = UDim2.new(0.5, 0, 0, 4)
-        timeLbl.Size = UDim2.new(1, 0, 0, 40)
+        timeLbl.Position = UDim2.new(0.5, 0, 0.05, 0)
+        timeLbl.Size = UDim2.new(1, 0, 0.48, 0)
         timeLbl.TextXAlignment = Enum.TextXAlignment.Center
+        timeLbl.TextScaled = true
         submitLbl.AnchorPoint = Vector2.new(0.5, 0)
-        submitLbl.Position = UDim2.new(0.5, 0, 0, 46)
-        submitLbl.Size = UDim2.new(1, 0, 0, 36)
+        submitLbl.Position = UDim2.new(0.5, 0, 0.52, 0)
+        submitLbl.Size = UDim2.new(1, 0, 0.44, 0)
         submitLbl.TextXAlignment = Enum.TextXAlignment.Center
         submitLbl.TextWrapped = true
+        submitLbl.TextScaled = true
     end
 
     for _, lbl in ipairs(timer:GetDescendants()) do
@@ -144,20 +236,20 @@ local function ensureReviewPhaseTitle(reviewFrame)
         title.Parent = reviewFrame
     end
     title.AnchorPoint = Vector2.new(0.5, 0)
-    title.Position = UDim2.new(0.5, 0, 0, 14)
-    title.Size = UDim2.new(0, 520, 0, 40)
+    title.Position = UDim2.new(0.5, 0, 0.015, 0)
+    title.Size = UDim2.new(0.86, 0, 0.06, 0)
     title.Text = "Review & Rank Albums"
     title.TextXAlignment = Enum.TextXAlignment.Center
     title.ZIndex = 20
+    title.ClipsDescendants = false
     applyReviewText(title, 28, true)
+    title.TextScaled = true
+    title.TextWrapped = true
 end
 
-local _clickSound = nil
+local clickSound = ReplicatedStorage:WaitForChild("Sounds"):WaitForChild("Click") :: Sound
 local function playClick()
-    if not _clickSound then
-        _clickSound = game:GetService("SoundService"):FindFirstChild("ClickSound")
-    end
-    if _clickSound then _clickSound:Play() end
+    clickSound:Play()
 end
 
 local function addClickSound(btn)
@@ -286,22 +378,22 @@ end
 
 local HUD_COIN_FADE = 0.45
 local HUD_COIN_TEXT = 28
-local HUD_COIN_W = 260
-local HUD_COIN_H = 44
 
 local function ensureHudCoins(): TextLabel
     local existing = screenGui:FindFirstChild("HudCoinsLabel")
     if existing and existing:IsA("TextLabel") then
         existing.TextSize = HUD_COIN_TEXT
-        existing.Size = UDim2.new(0, HUD_COIN_W, 0, HUD_COIN_H)
+        existing.AnchorPoint = Vector2.new(1, 0)
+        existing.Position = UDim2.new(0.985, 0, 0.02, 0)
+        existing.Size = UDim2.new(0.22, 0, 0.05, 0)
         return existing
     end
 
     local lbl = Instance.new("TextLabel")
     lbl.Name = "HudCoinsLabel"
     lbl.AnchorPoint = Vector2.new(1, 0)
-    lbl.Position = UDim2.new(1, -16, 0, 12)
-    lbl.Size = UDim2.new(0, HUD_COIN_W, 0, HUD_COIN_H)
+    lbl.Position = UDim2.new(0.985, 0, 0.02, 0)
+    lbl.Size = UDim2.new(0.22, 0, 0.05, 0)
     lbl.BackgroundTransparency = 1
     lbl.BorderSizePixel = 0
     lbl.Font = Enum.Font.GothamMedium
@@ -485,16 +577,13 @@ local function fillAvatarFromCharacter(host, character)
 
     for _, d in ipairs(clone:GetDescendants()) do
         if d:IsA("BasePart") then
+            d.Anchored = true
             d.CanCollide = false
             d.LocalTransparencyModifier = 0
             if d.Name == "HumanoidRootPart" then
                 d.Transparency = 1
-                d.Anchored = true
-            else
-                d.Anchored = false
-                if d.Transparency >= 1 then
-                    d.Transparency = 0
-                end
+            elseif d.Transparency >= 1 then
+                d.Transparency = 0
             end
         elseif d:IsA("Decal") or d:IsA("Texture") then
             d.Transparency = 0
@@ -507,23 +596,38 @@ local function fillAvatarFromCharacter(host, character)
         hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
     end
     clone.Parent = world
+    pcall(function()
+        local h = clone:FindFirstChildOfClass("Humanoid")
+        if h then
+            h.EvaluateStateMachine = false
+            h.AutoRotate = false
+        end
+    end)
 
     local head = clone:FindFirstChild("Head")
     local cam = Instance.new("Camera")
     cam.Parent = vp
     vp.CurrentCamera = cam
+    cam.FieldOfView = 46
     if head and head:IsA("BasePart") then
-        local lv = head.CFrame.LookVector
-        local yaw = math.atan2(lv.X, -lv.Z)
-        clone:PivotTo(clone:GetPivot() * CFrame.Angles(0, -yaw, 0))
-        head = clone:FindFirstChild("Head")
-    end
-    head = clone:FindFirstChild("Head")
-    if head and head:IsA("BasePart") then
-        local focus = head.CFrame.Position + Vector3.new(0, 0.06, 0)
-        cam.CFrame = CFrame.lookAt(focus + Vector3.new(0, 0, -1.85), focus, Vector3.yAxis)
+        local att = head:FindFirstChild("FaceFrontAttachment")
+        local out
+        if att and att:IsA("Attachment") then
+            out = att.WorldPosition - head.Position
+        end
+        if not out or out.Magnitude < 0.04 then
+            out = head.CFrame.LookVector
+        end
+        local flat = Vector3.new(out.X, 0, out.Z)
+        if flat.Magnitude < 0.04 then
+            flat = Vector3.new(0, 0, -1)
+        else
+            flat = flat.Unit
+        end
+        local focus = head.Position + Vector3.new(0, 0.08, 0)
+        cam.CFrame = CFrame.lookAt(focus + flat * 3.4, focus, Vector3.yAxis)
     else
-        cam.CFrame = CFrame.lookAt(Vector3.new(0, 1.6, -2.2), Vector3.new(0, 1.5, 0), Vector3.yAxis)
+        cam.CFrame = CFrame.lookAt(Vector3.new(0, 1.6, -2.8), Vector3.new(0, 1.5, 0), Vector3.yAxis)
     end
     return true
 end
@@ -598,7 +702,9 @@ local function makeReviewAvatar(parent, size, playerName, zIndex, userId)
     av.BorderSizePixel = 0
     av.ScaleType = Enum.ScaleType.Crop
     av.Image = ""
-    av.ZIndex = zIndex or 5
+    av.Visible = true
+    av.BackgroundTransparency = 0
+    av.ZIndex = math.max(zIndex or 5, 8)
     av.Parent = parent
     addCorner(av, math.floor(size * 0.5))
     task.spawn(function()
@@ -608,13 +714,27 @@ local function makeReviewAvatar(parent, size, playerName, zIndex, userId)
     return av
 end
 
+local function layoutIconName(av, nameLbl, avSize, extraRight)
+    extraRight = extraRight or 8
+    local gap = REVIEW.AV_GAP
+    av.SizeConstraint = Enum.SizeConstraint.RelativeXY
+    av.AnchorPoint = Vector2.new(0, 0.5)
+    av.Size = UDim2.new(0, avSize, 0, avSize)
+    av.Position = UDim2.new(0, 8, 0.5, 0)
+    if nameLbl then
+        nameLbl.AnchorPoint = Vector2.new(0, 0.5)
+        nameLbl.Position = UDim2.new(0, 8 + avSize + gap, 0.5, 0)
+        nameLbl.Size = UDim2.new(1, -(8 + avSize + gap + extraRight), 1, 0)
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextYAlignment = Enum.TextYAlignment.Center
+    end
+end
+
 local QUEUE_NAME_COLOR = Color3.fromRGB(255, 255, 255)
 local QUEUE_COIN_COLOR = Color3.fromRGB(255, 255, 21)
-local QUEUE_BOTTOM_PAD = 30
-local QUEUE_CARD_W = 280
-local QUEUE_CARD_H = 74
-local QUEUE_OTHER_CARD_W = 200
-local QUEUE_CARD_GAP = 8
+local QUEUE_CARD_W = 340
+local QUEUE_OTHER_CARD_W = 250
+local QUEUE_CARD_GAP = 10
 
 local queueCardsContainer: Frame? = nil
 
@@ -632,8 +752,8 @@ local function ensureQueueCardsContainer(): Frame
 
     container.BackgroundTransparency = 1
     container.AnchorPoint = Vector2.new(0.5, 1)
-    container.Position = UDim2.new(0.5, 0, 1, -QUEUE_BOTTOM_PAD)
-    container.Size = UDim2.new(0, 0, 0, QUEUE_CARD_H)
+    container.Position = UDim2.new(0.5, 0, 0.96, 0)
+    container.Size = UDim2.new(0, 0, 0.14, 0)
     container.AutomaticSize = Enum.AutomaticSize.X
     container.ZIndex = 2
 
@@ -674,28 +794,49 @@ local function populateQueueCard(card: Frame, member: { userId: number?, name: s
     local nameLabel = card:FindFirstChild("PlayerName")
     local coinLabel = card:FindFirstChild("CoinLabel")
 
-    card.Size = UDim2.new(0, isLocal and QUEUE_CARD_W or QUEUE_OTHER_CARD_W, 0, QUEUE_CARD_H)
+    card.Size = UDim2.new(0, isLocal and QUEUE_CARD_W or QUEUE_OTHER_CARD_W, 1, 0)
     card.AnchorPoint = Vector2.new(0.5, 1)
     card.Position = UDim2.new(0, 0, 0, 0)
 
+    local avSize = 72
+    if avatarImg and avatarImg:IsA("ImageLabel") then
+        avatarImg.Visible = true
+        avatarImg.ImageTransparency = 0
+        avatarImg.SizeConstraint = Enum.SizeConstraint.RelativeXY
+        avatarImg.AnchorPoint = Vector2.new(0, 0.5)
+        avatarImg.Position = UDim2.new(0, 10, 0.5, 0)
+        avatarImg.Size = UDim2.new(0, avSize, 0, avSize)
+        avatarImg.ZIndex = math.max(avatarImg.ZIndex, 3)
+        loadAvatar(avatarImg, member.userId, member.name)
+    end
     if nameLabel and nameLabel:IsA("TextLabel") then
         nameLabel.Text = member.name or "?"
+        nameLabel.TextSize = 22
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.AnchorPoint = Vector2.new(0, 0.5)
+        nameLabel.Position = UDim2.new(0, 10 + avSize + 8, 0.5, 0)
+        nameLabel.Size = UDim2.new(1, -(10 + avSize + 8 + (isLocal and 96 or 12)), 0.7, 0)
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.TextYAlignment = Enum.TextYAlignment.Center
+        nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
         styleQueueLabel(nameLabel, QUEUE_NAME_COLOR)
     end
     if coinLabel and coinLabel:IsA("TextLabel") then
         if isLocal then
             coinLabel.Visible = true
             coinLabel.Text = tostring(member.coins or 0) .. " Coins"
+            coinLabel.TextSize = 18
+            coinLabel.Font = Enum.Font.GothamBold
+            coinLabel.AnchorPoint = Vector2.new(1, 1)
+            coinLabel.Position = UDim2.new(1, -10, 1, -6)
+            coinLabel.Size = UDim2.new(0.55, 0, 0, 22)
+            coinLabel.TextXAlignment = Enum.TextXAlignment.Right
+            coinLabel.TextYAlignment = Enum.TextYAlignment.Bottom
+            coinLabel.ZIndex = math.max(coinLabel.ZIndex, 4)
             styleQueueLabel(coinLabel, QUEUE_COIN_COLOR)
         else
             coinLabel.Visible = false
         end
-    end
-    if avatarImg and avatarImg:IsA("ImageLabel") then
-        avatarImg.Visible = true
-        avatarImg.ImageTransparency = 0
-        avatarImg.ZIndex = math.max(avatarImg.ZIndex, 3)
-        loadAvatar(avatarImg, member.userId, member.name)
     end
 end
 
@@ -750,9 +891,9 @@ local function handleLobby(currentCount, maxCount, members, countdown)
         cd = Instance.new("TextLabel")
         cd.Name = "QueueCountdown"
         cd.BackgroundTransparency = 1
-        cd.AnchorPoint = Vector2.new(0.5, 0.5)
-        cd.Position = UDim2.new(0.5, 0, 0.82, 0)
-        cd.Size = UDim2.new(0, 280, 0, 36)
+        cd.AnchorPoint = Vector2.new(0.5, 0)
+        cd.Position = UDim2.new(0.5, 0, 0, 10)
+        cd.Size = UDim2.new(0, 320, 0, 36)
         cd.Font = Enum.Font.GothamBold
         cd.TextSize = 22
         cd.TextColor3 = Color3.fromRGB(255, 240, 120)
@@ -765,6 +906,9 @@ local function handleLobby(currentCount, maxCount, members, countdown)
         stroke.Transparency = 0.25
         stroke.Parent = cd
     end
+    cd.AnchorPoint = Vector2.new(0.5, 0)
+    cd.Position = UDim2.new(0.5, 0, 0, 10)
+    cd.ZIndex = 8
     local n = tonumber(countdown)
     if n and n > 0 then
         cd.Visible = true
@@ -776,12 +920,39 @@ local function handleLobby(currentCount, maxCount, members, countdown)
 
     local template = lobbyFrame:FindFirstChild("PlayerCard")
     local exitBtn = lobbyFrame:FindFirstChild("ExitQueueButton")
-    if exitBtn and not exitBtn:GetAttribute("Wired") then
-        exitBtn:SetAttribute("Wired", true)
-        addClickSound(exitBtn)
-        exitBtn.MouseButton1Click:Connect(function()
-            LeaveQueueRequest:FireServer()
-        end)
+    if exitBtn then
+        exitBtn.Text = "Leave Queue"
+        exitBtn.Font = Enum.Font.Gotham
+        exitBtn.TextScaled = false
+        exitBtn.TextSize = 18
+        exitBtn.TextColor3 = Color3.fromRGB(230, 225, 240)
+        exitBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        exitBtn.BackgroundTransparency = 0.85
+        exitBtn.AutoButtonColor = true
+        exitBtn.AnchorPoint = Vector2.new(1, 0)
+        exitBtn.Position = UDim2.new(1, -16, 0, 16)
+        exitBtn.Size = UDim2.new(0, 168, 0, 42)
+        exitBtn.ZIndex = 12
+        if not exitBtn:FindFirstChildOfClass("UICorner") then
+            addCorner(exitBtn, 8)
+        end
+        local es = exitBtn:FindFirstChildOfClass("UIStroke")
+        if es then
+            es.Thickness = 1
+            es.Transparency = 0.4
+            es.Color = Color3.fromRGB(220, 210, 240)
+        end
+        local cap = exitBtn:FindFirstChildOfClass("UITextSizeConstraint")
+        if cap then
+            cap:Destroy()
+        end
+        if not exitBtn:GetAttribute("Wired") then
+            exitBtn:SetAttribute("Wired", true)
+            addClickSound(exitBtn)
+            exitBtn.MouseButton1Click:Connect(function()
+                LeaveQueueRequest:FireServer()
+            end)
+        end
     end
 
     if not template or not template:IsA("Frame") then
@@ -832,34 +1003,70 @@ local function handleWrite(timeLimit)
     submitGen += 1
     local gen = submitGen
     local waitTime = timeLimit or Config.WRITE_TIME
+    local WRITE_W = 0.55
 
-    local wfHdr = writeFrame:FindFirstChildOfClass("Frame")
-    if wfHdr then
-        wfHdr.Size = UDim2.new(0, 460, 0, 40)
+    local pl = writeFrame:FindFirstChild("PromptLabel", true)
+    local wfHdr = pl and pl.Parent
+    if wfHdr and wfHdr:IsA("GuiObject") and wfHdr ~= writeFrame then
+        wfHdr.Size = UDim2.new(WRITE_W, 0, 0.12, 0)
         wfHdr.AnchorPoint = Vector2.new(0.5, 0)
-        wfHdr.Position = UDim2.new(0.5, 0, 0, 56)
+        wfHdr.Position = UDim2.new(0.5, 0, 0.18, 0)
+        wfHdr.ClipsDescendants = false
+        local pad = wfHdr:FindFirstChildOfClass("UIPadding")
+        if not pad then
+            pad = Instance.new("UIPadding")
+            pad.Parent = wfHdr
+        end
+        pad.PaddingLeft = UDim.new(0.03, 8)
+        pad.PaddingRight = UDim.new(0.03, 8)
     end
-
+    if pl then
+        pl.Text = "What should the next person draw 🤔?"
+        pl.Size = UDim2.new(1, 0, 1, 0)
+        pl.Position = UDim2.new(0, 0, 0, 0)
+        pl.AnchorPoint = Vector2.new(0, 0)
+        fitHeaderLabel(pl, 40)
+        pl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
     local ip = writeFrame:FindFirstChild("ImagePreview")
     if ip then ip.Visible = false end
 
     local tb = writeFrame:FindFirstChild("TextInputBox")
     if tb then
-        tb.AnchorPoint = Vector2.new(0.5, 0.5)
-        tb.Position    = UDim2.new(0.5, 0, 0.48, 0)
-        tb.Size        = UDim2.new(0, 460, 0, 56)
+        tb.AnchorPoint = Vector2.new(0.5, 0)
+        tb.Position    = UDim2.new(0.5, 0, 0.38, 0)
+        tb.Size        = UDim2.new(WRITE_W, 0, 0.1, 0)
         tb.PlaceholderText = "Write your sentence here..."
+        tb.TextXAlignment = Enum.TextXAlignment.Center
+        tb.TextYAlignment = Enum.TextYAlignment.Center
+        tb.TextScaled = true
+        tb.Font = Enum.Font.GothamBold
+        local tbCap = tb:FindFirstChildOfClass("UITextSizeConstraint")
+        if not tbCap then
+            tbCap = Instance.new("UITextSizeConstraint")
+            tbCap.Parent = tb
+        end
+        tbCap.MinTextSize = 20
+        tbCap.MaxTextSize = 32
     end
 
     local submitBtn = writeFrame:FindFirstChild("SubmitButton")
     if submitBtn then
-        submitBtn.Size = UDim2.new(0, 280, 0, 48)
-        submitBtn.AnchorPoint = Vector2.new(0.5, 1)
-        submitBtn.Position = UDim2.new(0.5, 0, 1, -60)
+        submitBtn.Size = UDim2.new(WRITE_W, 0, 0.09, 0)
+        submitBtn.AnchorPoint = Vector2.new(0.5, 0)
+        submitBtn.Position = UDim2.new(0.5, 0, 0.56, 0)
+        submitBtn.TextXAlignment = Enum.TextXAlignment.Center
+        submitBtn.TextYAlignment = Enum.TextYAlignment.Center
+        submitBtn.TextScaled = true
+        submitBtn.Font = Enum.Font.GothamBold
+        local sCap = submitBtn:FindFirstChildOfClass("UITextSizeConstraint")
+        if not sCap then
+            sCap = Instance.new("UITextSizeConstraint")
+            sCap.Parent = submitBtn
+        end
+        sCap.MinTextSize = 20
+        sCap.MaxTextSize = 32
     end
-
-    local pl = writeFrame:FindFirstChild("PromptLabel", true)
-    if pl then pl.Text = "Write a sentence..." end
 
     local textBox   = writeFrame:FindFirstChild("TextInputBox")
     local submitted = false
@@ -882,7 +1089,12 @@ local function handleWrite(timeLimit)
         end
     end
 
-    if textBox then textBox.Text = "" ; textBox:CaptureFocus() end
+    if textBox then
+        textBox.Text = ""
+        if textBox:IsA("TextBox") then
+            textBox:ReleaseFocus()
+        end
+    end
     if submitBtn then
         submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
         submitBtn.Text = "Submit"
@@ -895,19 +1107,158 @@ local function handleWrite(timeLimit)
     task.delay(math.max(0.2, waitTime - 0.35), sendWrite)
 end
 
+local function fitPaletteScroll(tp)
+    if not (tp and tp:IsA("ScrollingFrame")) then
+        return
+    end
+    local maxB = 0
+    for _, ch in ipairs(tp:GetChildren()) do
+        if ch:IsA("GuiObject") then
+            maxB = math.max(maxB, ch.Position.Y.Offset + ch.Size.Y.Offset)
+        end
+    end
+    tp.ScrollingEnabled = true
+    tp.ScrollBarThickness = 8
+    tp.VerticalScrollBarInset = Enum.ScrollBarInset.None
+    tp.AutomaticCanvasSize = Enum.AutomaticSize.None
+    tp.CanvasSize = UDim2.new(0, 0, 0, math.max(maxB + 24, 1))
+    tp.CanvasPosition = Vector2.new(0, 0)
+end
+
 local function handleDraw(timeLimit, roundData)
     showFrame(drawFrame)
+    local PAL_W = 150
+
     local pl = drawFrame:FindFirstChild("PromptLabel", true)
+    local hdr = pl and pl.Parent
     if pl then
-        pl.TextWrapped = true
         pl.Text = (roundData and roundData.content)
                   and ("Draw: \"" .. tostring(roundData.content) .. "\"")
                   or  "Waiting for prompt..."
+        fitHeaderLabel(pl, 32)
+        pl.TextColor3 = Color3.fromRGB(255, 255, 255)
+        if hdr and hdr:IsA("GuiObject") and hdr ~= drawFrame then
+            hdr.ClipsDescendants = false
+            local pad = hdr:FindFirstChildOfClass("UIPadding")
+            if not pad then
+                pad = Instance.new("UIPadding")
+                pad.Parent = hdr
+            end
+            pad.PaddingLeft = UDim.new(0.02, 8)
+            pad.PaddingRight = UDim.new(0.02, 8)
+        end
     end
+
+    local canvas = drawFrame:FindFirstChild("Canvas")
+    local submitBtn = drawFrame:FindFirstChild("SubmitButton")
+    local toolPanel = drawFrame:FindFirstChild("ToolPanel")
+
+    local function stripLock(gui)
+        if not (gui and gui:IsA("GuiObject")) then
+            return
+        end
+        gui.AutomaticSize = Enum.AutomaticSize.None
+        for _, c in ipairs(gui:GetChildren()) do
+            if c:IsA("UISizeConstraint") or c:IsA("UIAspectRatioConstraint") or c:IsA("UIScale") then
+                c:Destroy()
+            end
+        end
+    end
+    stripLock(hdr)
+    stripLock(canvas)
+    stripLock(submitBtn)
+
+    if toolPanel and toolPanel:IsA("GuiObject") then
+        local pal = toolPanel:FindFirstChild("PaletteScale")
+        if pal then pal:Destroy() end
+        local palPad = toolPanel:FindFirstChild("PalettePad")
+        if palPad then palPad:Destroy() end
+        toolPanel.AnchorPoint = Vector2.new(1, 0.5)
+        toolPanel.Position = UDim2.new(0.965, 0, 0.5, 0)
+        toolPanel.Size = UDim2.new(0, PAL_W, 0.78, 0)
+        toolPanel.VerticalScrollBarInset = Enum.ScrollBarInset.None
+        local GAP = 6
+        for i = 1, 10 do
+            local btn = toolPanel:FindFirstChild("ColorBtn_" .. i)
+            if btn and btn:IsA("GuiObject") then
+                local leftCol = (i % 2 == 1)
+                btn.AnchorPoint = leftCol and Vector2.new(1, 0) or Vector2.new(0, 0)
+                btn.Position = UDim2.new(0.5, leftCol and -GAP or GAP, 0, btn.Position.Y.Offset)
+                btn.Size = UDim2.fromOffset(56, 56)
+            end
+        end
+        fitPaletteScroll(toolPanel)
+    end
+
+    local function layoutCol()
+        local ux = select(1, UiScaler.unscaledSize(drawFrame))
+        ux = math.max(ux, 1)
+        local palFrac = PAL_W / ux + 0.05
+        local leftPad = 0.04
+        local colW = math.clamp(1 - palFrac - leftPad, 0.45, 0.82)
+        local mid = leftPad + colW * 0.5
+        local top = 0.05
+        local hdrH = 0.08
+        local gap = 0.02
+        local subH = 0.07
+        local timH = 0.07
+        local bot = 0.02
+        local canvasH = 1 - top - bot - hdrH - subH - timH - gap * 3
+        if hdr and hdr:IsA("GuiObject") and hdr ~= drawFrame then
+            hdr.AnchorPoint = Vector2.new(0.5, 0)
+            hdr.Position = UDim2.new(mid, 0, top, 0)
+            hdr.Size = UDim2.new(colW, 0, hdrH, 0)
+        end
+        if canvas and canvas:IsA("GuiObject") then
+            canvas.AnchorPoint = Vector2.new(0.5, 0)
+            canvas.Position = UDim2.new(mid, 0, top + hdrH + gap, 0)
+            canvas.Size = UDim2.new(colW, 0, canvasH, 0)
+        end
+        local subY = top + hdrH + gap + canvasH + gap
+        if submitBtn and submitBtn:IsA("GuiObject") then
+            submitBtn.AnchorPoint = Vector2.new(0.5, 0)
+            submitBtn.Position = UDim2.new(mid, 0, subY, 0)
+            submitBtn.Size = UDim2.new(colW, 0, subH, 0)
+            submitBtn.TextScaled = true
+            local sCap = submitBtn:FindFirstChildOfClass("UITextSizeConstraint")
+            if not sCap then
+                sCap = Instance.new("UITextSizeConstraint")
+                sCap.Parent = submitBtn
+            end
+            sCap.MinTextSize = 14
+            sCap.MaxTextSize = 22
+        end
+        local timer = drawFrame:FindFirstChild("TimerContainer")
+        if timer and timer:IsA("GuiObject") then
+            timer.AnchorPoint = Vector2.new(0.5, 0)
+            timer.Position = UDim2.new(mid, 0, subY + subH + gap, 0)
+            timer.Size = UDim2.new(colW, 0, timH, 0)
+            timer.ZIndex = 30
+            timer.BackgroundTransparency = 1
+            local timeLbl = timer:FindFirstChild("TimeLabel")
+            local submitLbl = timer:FindFirstChild("SubmitLabel")
+            if timeLbl and timeLbl:IsA("GuiObject") then
+                timeLbl.AnchorPoint = Vector2.new(0.5, 0)
+                timeLbl.Position = UDim2.new(0.5, 0, 0, 0)
+                timeLbl.Size = UDim2.new(1, 0, 0.5, 0)
+                timeLbl.ZIndex = 31
+                timeLbl.Visible = true
+            end
+            if submitLbl and submitLbl:IsA("GuiObject") then
+                submitLbl.AnchorPoint = Vector2.new(0.5, 0)
+                submitLbl.Position = UDim2.new(0.5, 0, 0.5, 0)
+                submitLbl.Size = UDim2.new(1, 0, 0.5, 0)
+                submitLbl.ZIndex = 31
+                submitLbl.Visible = true
+            end
+        end
+    end
+    layoutCol()
+    task.defer(layoutCol)
+
     local signals = ReplicatedStorage:FindFirstChild("Signals")
     local ev = signals and signals:FindFirstChild("DrawActiveEvent")
     if ev then ev:Fire(true) end
-    local submitBtn = drawFrame:FindFirstChild("SubmitButton")
     if submitBtn then
         submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
         submitBtn.Text = "Submit"
@@ -942,53 +1293,26 @@ local function handleDescribe(timeLimit, roundData)
     local pl = writeFrame:FindFirstChild("PromptLabel", true)
     if pl then
         pl.Text = "Describe this image:"
-        pl.TextWrapped = true
+        pl.Size = UDim2.new(1, 0, 1, 0)
+        pl.Position = UDim2.new(0, 0, 0, 0)
+        fitHeaderLabel(pl, 36)
+        pl.TextColor3 = Color3.fromRGB(255, 255, 255)
+        local hdr = pl.Parent
+        if hdr and hdr:IsA("GuiObject") and hdr ~= writeFrame then
+            hdr.ClipsDescendants = false
+        end
     end
-
     local CANVAS_ASPECT = CANVAS_W / CANVAS_H
-    local screenH = writeFrame.AbsoluteSize.Y
-    if screenH <= 0 then screenH = 600 end
-    local screenW = writeFrame.AbsoluteSize.X
-    if screenW <= 0 then screenW = 800 end
-
-    local marginX = math.floor(screenW * 0.12)
-    local marginY = math.floor(screenH * 0.07)
-    local gap = math.max(18, math.floor(screenH * 0.024))
-    local hdrH = 44
-    local textH = math.max(56, math.floor(screenH * 0.07))
-    local btnH = math.max(48, math.floor(screenH * 0.06))
-
-    local maxImgW = screenW - marginX * 2
-    local usedH = hdrH + gap + textH + gap + btnH
-    local maxImgH = screenH - marginY * 2 - usedH
-    maxImgH = math.min(maxImgH, math.floor(screenH * 0.52))
-
-    local imgH = maxImgH
-    local imgW = math.floor(imgH * CANVAS_ASPECT)
-    if imgW > maxImgW then
-        imgW = maxImgW
-        imgH = math.floor(imgW / CANVAS_ASPECT)
-    end
-
-    local stackH = hdrH + gap + imgH + gap + textH + gap + btnH
-    local stackTop = math.floor((screenH - stackH) * 0.5)
-    stackTop = math.max(marginY, stackTop)
-
-    local wfHdr = writeFrame:FindFirstChildOfClass("Frame")
-    if wfHdr and wfHdr.Name ~= "ImagePreview" and wfHdr.Name ~= "TimerContainer" then
-        wfHdr.Size        = UDim2.new(0, imgW, 0, hdrH)
-        wfHdr.AnchorPoint = Vector2.new(0.5, 0)
-        wfHdr.Position    = UDim2.new(0.5, 0, 0, stackTop)
-        wfHdr.ClipsDescendants = true
-    end
+    local DESC_W = 0.55
+    local IMG_W = 0.78
 
     local ip = writeFrame:FindFirstChild("ImagePreview")
     if ip then
         ip.Visible     = true
-        ip.Size        = UDim2.new(0, imgW, 0, imgH)
+        ip.Size        = UDim2.new(IMG_W, 0, 0.52, 0)
         ip.AnchorPoint = Vector2.new(0.5, 0)
-        ip.Position    = UDim2.new(0.5, 0, 0, stackTop + hdrH + gap)
-        ip.ClipsDescendants = true
+        ip.Position    = UDim2.new(0.5, 0, 0.15, 0)
+        ip.ClipsDescendants = false
         ip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         ip.ZIndex = 3
         local ar = ip:FindFirstChildOfClass("UIAspectRatioConstraint")
@@ -997,6 +1321,7 @@ local function handleDescribe(timeLimit, roundData)
             ar.Parent = ip
         end
         ar.AspectRatio = CANVAS_ASPECT
+        ar.DominantAxis = Enum.DominantAxis.Width
         for _, c in ipairs(ip:GetChildren()) do
             if c:IsA("Frame") and (c.Name == "Dot" or c.Name == "Seg" or c.Name == "StrokeLayer") then
                 c:Destroy()
@@ -1006,30 +1331,55 @@ local function handleDescribe(timeLimit, roundData)
         if not border then
             border = Instance.new("UIStroke")
             border.Name = "PreviewStroke"
-            border.Color = Color3.fromRGB(40, 30, 80)
-            border.Thickness = 2
             border.Parent = ip
         end
+        border.Color = Color3.fromRGB(40, 30, 80)
+        border.Thickness = 2
+        border.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         fireStrokes(ip, roundData and roundData.content)
     end
 
-    local yText = stackTop + hdrH + gap + imgH + gap
+    local function placeCentered(gui, yScale, hScale)
+        gui.AnchorPoint = Vector2.new(0.5, 0)
+        gui.Position = UDim2.new(0.5, 0, yScale, 0)
+        gui.Size = UDim2.new(DESC_W, 0, hScale, 0)
+    end
+
+    local wfHdr = writeFrame:FindFirstChildOfClass("Frame")
+    if wfHdr and wfHdr.Name ~= "ImagePreview" and wfHdr.Name ~= "TimerContainer" then
+        wfHdr.ClipsDescendants = true
+        placeCentered(wfHdr, 0.04, 0.09)
+    end
 
     local tb2 = writeFrame:FindFirstChild("TextInputBox")
     if tb2 then
-        tb2.Size            = UDim2.new(0, imgW, 0, textH)
-        tb2.AnchorPoint     = Vector2.new(0.5, 0)
-        tb2.Position        = UDim2.new(0.5, 0, 0, yText)
         tb2.PlaceholderText = "Describe the image..."
         tb2.TextXAlignment  = Enum.TextXAlignment.Center
+        tb2.TextYAlignment  = Enum.TextYAlignment.Center
         tb2.TextWrapped     = true
+        tb2.TextScaled      = true
+        placeCentered(tb2, 0.74, 0.09)
+        local tbCap = tb2:FindFirstChildOfClass("UITextSizeConstraint")
+        if not tbCap then
+            tbCap = Instance.new("UITextSizeConstraint")
+            tbCap.Parent = tb2
+        end
+        tbCap.MinTextSize = 18
+        tbCap.MaxTextSize = 28
     end
 
     local submitBtn = writeFrame:FindFirstChild("SubmitButton")
     if submitBtn then
-        submitBtn.Size        = UDim2.new(0, imgW, 0, btnH)
-        submitBtn.AnchorPoint = Vector2.new(0.5, 0)
-        submitBtn.Position    = UDim2.new(0.5, 0, 0, yText + textH + gap)
+        submitBtn.TextXAlignment = Enum.TextXAlignment.Center
+        submitBtn.TextScaled = true
+        placeCentered(submitBtn, 0.86, 0.07)
+        local sCap = submitBtn:FindFirstChildOfClass("UITextSizeConstraint")
+        if not sCap then
+            sCap = Instance.new("UITextSizeConstraint")
+            sCap.Parent = submitBtn
+        end
+        sCap.MinTextSize = 16
+        sCap.MaxTextSize = 26
     end
 
     local textBox  = writeFrame:FindFirstChild("TextInputBox")
@@ -1047,7 +1397,12 @@ local function handleDescribe(timeLimit, roundData)
         end
     end
 
-    if textBox then textBox.Text = ""; textBox:CaptureFocus() end
+    if textBox then
+        textBox.Text = ""
+        if textBox:IsA("TextBox") then
+            textBox:ReleaseFocus()
+        end
+    end
     if submitBtn then
         submitBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 100)
         submitBtn.Text = "Submit"
@@ -1063,7 +1418,8 @@ end
 local function showChainInMainWindow(chain, mainWindow)
     if not mainWindow then return end
     for _, c in ipairs(mainWindow:GetChildren()) do
-        if c.Name == "EntryItem" or c.Name == "AlbumTitleRow" then
+        if c.Name == "EntryItem" or c.Name == "AlbumTitleRow"
+            or c:IsA("UIListLayout") or c:IsA("UIPadding") then
             c:Destroy()
         elseif c.Name == "AlbumTitle" then
             c.Visible = false
@@ -1073,32 +1429,58 @@ local function showChainInMainWindow(chain, mainWindow)
     local titleRow = Instance.new("Frame")
     titleRow.Name = "AlbumTitleRow"
     titleRow.BackgroundTransparency = 1
-    titleRow.Size = UDim2.new(1, -32, 0, 44)
-    titleRow.Position = UDim2.new(0, 16, 0, 14)
+    titleRow.Size = UDim2.new(0.94, 0, 0, 56)
+    titleRow.LayoutOrder = 0
     titleRow.Parent = mainWindow
 
-    local titleAv = makeReviewAvatar(titleRow, 36, chain.startPlayerName, 6, chain.startPlayerUserId)
-    titleAv.AnchorPoint = Vector2.new(0, 0.5)
-    titleAv.Position = UDim2.new(0, 0, 0.5, 0)
+    local titleLay = Instance.new("UIListLayout")
+    titleLay.FillDirection = Enum.FillDirection.Horizontal
+    titleLay.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    titleLay.VerticalAlignment = Enum.VerticalAlignment.Center
+    titleLay.Padding = UDim.new(0, REVIEW.AV_GAP)
+    titleLay.SortOrder = Enum.SortOrder.LayoutOrder
+    titleLay.Parent = titleRow
+
+    local titleAv = makeReviewAvatar(titleRow, REVIEW.AV_SIZE, chain.startPlayerName, 6, chain.startPlayerUserId)
+    titleAv.LayoutOrder = 1
+    titleAv.Size = UDim2.new(0, REVIEW.AV_SIZE, 0, REVIEW.AV_SIZE)
 
     local albumTitle = Instance.new("TextLabel")
     albumTitle.Name = "AlbumTitle"
-    albumTitle.Size = UDim2.new(1, -44, 1, 0)
-    albumTitle.Position = UDim2.new(0, 44, 0, 0)
+    albumTitle.LayoutOrder = 2
+    albumTitle.AutomaticSize = Enum.AutomaticSize.X
+    albumTitle.Size = UDim2.new(0, 0, 1, 0)
     albumTitle.Text = chain.startPlayerName:upper() .. "'S ALBUM"
     albumTitle.TextXAlignment = Enum.TextXAlignment.Left
-    albumTitle.TextTruncate = Enum.TextTruncate.AtEnd
+    albumTitle.TextTruncate = Enum.TextTruncate.None
     albumTitle.ZIndex = 6
     albumTitle.Parent = titleRow
-    applyReviewText(albumTitle, 24, true)
+    applyReviewText(albumTitle, 26, true)
+    albumTitle.TextScaled = false
+    albumTitle.TextSize = 26
 
-    local ASPECT  = CANVAS_W / CANVAS_H
-    local yOffset = 68
+    local list = mainWindow:FindFirstChildOfClass("UIListLayout")
+    if not list then
+        list = Instance.new("UIListLayout")
+        list.Parent = mainWindow
+    end
+    list.SortOrder = Enum.SortOrder.LayoutOrder
+    list.Padding = UDim.new(0, 10)
+    list.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
-    local mwW = mainWindow.AbsoluteSize.X
-    if mwW <= 1 then mwW = 700 end
+    local pad = mainWindow:FindFirstChildOfClass("UIPadding")
+    if not pad then
+        pad = Instance.new("UIPadding")
+        pad.Parent = mainWindow
+    end
+    pad.PaddingTop = UDim.new(0.02, 0)
+    pad.PaddingBottom = UDim.new(0.02, 0)
+    pad.PaddingLeft = UDim.new(0.03, 0)
+    pad.PaddingRight = UDim.new(0.03, 0)
 
-    for _, entry in ipairs(chain.entries) do
+    local ASPECT = CANVAS_W / CANVAS_H
+
+    for i, entry in ipairs(chain.entries) do
         local isDrawing = (entry.type == "drawing")
         local authorName = tostring(entry.author or "")
         local authorUserId = entry.authorUserId
@@ -1111,93 +1493,95 @@ local function showChainInMainWindow(chain, mainWindow)
             end
         end
 
-        local imgW, imgH = 0, 0
-        if isDrawing then
-            local maxW = math.max(120, mwW - 56)
-            local maxH = math.min(420, math.floor(mainWindow.AbsoluteSize.Y * 0.55))
-            if maxH < 160 then maxH = 280 end
-            imgW = maxW
-            imgH = math.floor(imgW / ASPECT)
-            if imgH > maxH then
-                imgH = maxH
-                imgW = math.floor(imgH * ASPECT)
-            end
-        end
-
-        local textH = 96
-        if not isDrawing then
-            local extra = math.ceil(#textBody / 38) * 24
-            textH = math.clamp(72 + extra, 96, 200)
-        end
-        local itemH = isDrawing and (imgH + 60) or textH
-
         local item = Instance.new("Frame")
         item.Name              = "EntryItem"
-        item.Size              = UDim2.new(1, -32, 0, itemH)
-        item.Position          = UDim2.new(0, 16, 0, yOffset)
+        item.AutomaticSize     = Enum.AutomaticSize.Y
+        item.Size              = UDim2.new(1, 0, 0, 0)
         item.BackgroundColor3  = REVIEW.ENTRY
         item.BorderSizePixel   = 0
+        item.ClipsDescendants  = false
+        item.LayoutOrder       = i
         item.Parent            = mainWindow
         addCorner(item, 12)
         local iStroke = Instance.new("UIStroke")
         iStroke.Color        = REVIEW.CARD_STROKE
         iStroke.Thickness    = 1.5
+        iStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         iStroke.Parent       = item
 
-        local authAv = makeReviewAvatar(item, 30, authorName, 6, authorUserId)
-        authAv.AnchorPoint = Vector2.new(0, 0)
-        authAv.Position = UDim2.new(0, 10, 0, 8)
+        local itemLay = Instance.new("UIListLayout")
+        itemLay.SortOrder = Enum.SortOrder.LayoutOrder
+        itemLay.Padding = UDim.new(0, 16)
+        itemLay.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        itemLay.Parent = item
 
+        local itemPad = Instance.new("UIPadding")
+        itemPad.PaddingTop = UDim.new(0, 10)
+        itemPad.PaddingBottom = UDim.new(0, 12)
+        itemPad.PaddingLeft = UDim.new(0, 12)
+        itemPad.PaddingRight = UDim.new(0, 12)
+        itemPad.Parent = item
+
+        local header = Instance.new("Frame")
+        header.Name = "EntryHeader"
+        header.BackgroundTransparency = 1
+        header.Size = UDim2.new(1, 0, 0, REVIEW.AV_SIZE)
+        header.LayoutOrder = 1
+        header.Parent = item
+
+        local authAv = makeReviewAvatar(header, REVIEW.AV_SIZE, authorName, 6, authorUserId)
         local auth = Instance.new("TextLabel")
-        auth.Size              = UDim2.new(1, -52, 0, 32)
-        auth.Position          = UDim2.new(0, 46, 0, 6)
         auth.Text              = authorName
-        auth.TextXAlignment    = Enum.TextXAlignment.Left
         auth.TextTruncate      = Enum.TextTruncate.AtEnd
         auth.ZIndex            = 6
-        auth.Parent            = item
+        auth.Parent            = header
         applyReviewText(auth, 18, false)
+        layoutIconName(authAv, auth, REVIEW.AV_SIZE, 8)
 
         if isDrawing then
             local dc = Instance.new("Frame")
             dc.Name             = "DrawPreview"
-            dc.Size             = UDim2.new(0, imgW, 0, imgH)
-            dc.AnchorPoint      = Vector2.new(0.5, 0)
-            dc.Position         = UDim2.new(0.5, 0, 0, 42)
+            dc.LayoutOrder      = 2
+            dc.Size             = UDim2.new(1, 0, 0, 160)
             dc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
             dc.BorderSizePixel  = 0
-            dc.ClipsDescendants = true
+            dc.ClipsDescendants = false
             dc.Parent           = item
             addCorner(dc, 8)
+            local border = Instance.new("UIStroke")
+            border.Color = Color3.fromRGB(40, 30, 80)
+            border.Thickness = 2
+            border.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            border.Parent = dc
+            task.defer(function()
+                if not dc.Parent then return end
+                local w = dc.AbsoluteSize.X
+                if w > 4 then
+                    dc.Size = UDim2.new(1, 0, 0, math.floor(w / ASPECT + 0.5))
+                end
+            end)
             if type(entry.content) == "table" then
                 fireStrokes(dc, entry.content)
             end
         else
             local tl = Instance.new("TextLabel")
-            tl.Size              = UDim2.new(1, -24, 1, -46)
-            tl.Position          = UDim2.new(0, 12, 0, 40)
+            tl.LayoutOrder       = 2
+            tl.AutomaticSize     = Enum.AutomaticSize.Y
+            tl.Size              = UDim2.new(1, 0, 0, 0)
             tl.Text              = textBody
             tl.TextXAlignment    = Enum.TextXAlignment.Left
             tl.TextYAlignment    = Enum.TextYAlignment.Top
             tl.TextWrapped       = true
-            tl.Font              = Enum.Font.GothamMedium
-            tl.TextSize          = 22
-            tl.TextColor3        = REVIEW.TEXT_BODY
-            tl.BackgroundTransparency = 1
             tl.ZIndex            = 6
             tl.Parent            = item
-            local tlStroke = Instance.new("UIStroke")
-            tlStroke.Color = Color3.fromRGB(15, 8, 40)
-            tlStroke.Thickness = 1.2
-            tlStroke.Transparency = 0.25
-            tlStroke.Parent = tl
+            applyReviewText(tl, 20, false)
+            tl.TextScaled = false
         end
-
-        yOffset = yOffset + itemH + 12
     end
 
     if mainWindow:IsA("ScrollingFrame") then
-        mainWindow.CanvasSize = UDim2.new(0, 0, 0, yOffset + 20)
+        mainWindow.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        mainWindow.CanvasSize = UDim2.new(0, 0, 0, 0)
         mainWindow.ScrollBarThickness = 8
         mainWindow.BackgroundColor3 = REVIEW.RIGHT_BG
         mainWindow.BackgroundTransparency = 0
@@ -1241,38 +1625,38 @@ local function buildRankingPanel(rankingPanel, playerNames)
     end
     if #others == 0 then return end
 
-    local ROW_H   = 52
-    local ROW_GAP = 8
-    local TITLE_H = 26
-    local TITLE_Y = 8
-    local LIST_Y  = 50
-    local BTN_H   = 44
-    local BTN_W   = REVIEW.BTN_W
-    local BTN_GAP = 4
-    local BTN_AREA = BTN_W * 2 + BTN_GAP
     local SWAP_T  = 0.15
-    local AVATAR = 34
+    local rowCount = math.max(#others, 1)
+    local rowScale = math.clamp(0.86 / rowCount - 0.04, 0.18, 0.3)
 
     local title = Instance.new("TextLabel")
     title.Name = "RankTitle"
-    title.Size = UDim2.new(1, -16, 0, TITLE_H)
-    title.Position = UDim2.new(0, 8, 0, TITLE_Y)
+    title.Size = UDim2.new(0.94, 0, 0.12, 0)
+    title.Position = UDim2.new(0.03, 0, 0.02, 0)
     title.Text = "Rank the others"
     title.TextXAlignment = Enum.TextXAlignment.Left
-    title.TextYAlignment = Enum.TextYAlignment.Top
+    title.TextYAlignment = Enum.TextYAlignment.Center
     title.ClipsDescendants = true
     title.ZIndex = 2
     title.Parent = rankingPanel
-    applyReviewText(title, 18, true)
+    applyReviewText(title, 20, true)
+    title.TextWrapped = false
+    title.TextScaled = true
+    title.TextTruncate = Enum.TextTruncate.AtEnd
 
     local listContainer = Instance.new("Frame")
     listContainer.Name = "RankList"
     listContainer.BackgroundTransparency = 1
-    listContainer.Size = UDim2.new(1, 0, 1, -(LIST_Y + BTN_H + 28))
-    listContainer.Position = UDim2.new(0, 0, 0, LIST_Y)
-    listContainer.ClipsDescendants = true
+    listContainer.Size = UDim2.new(1, 0, 0.54, 0)
+    listContainer.Position = UDim2.new(0, 0, 0.22, 0)
+    listContainer.ClipsDescendants = false
     listContainer.ZIndex = 8
     listContainer.Parent = rankingPanel
+    local listPad = Instance.new("UIPadding")
+    listPad.PaddingTop = UDim.new(0, 6)
+    listPad.PaddingLeft = UDim.new(0, 4)
+    listPad.PaddingRight = UDim.new(0, 4)
+    listPad.Parent = listContainer
 
     local rowOrder = {}
     for _, name in ipairs(others) do table.insert(rowOrder, name) end
@@ -1280,7 +1664,7 @@ local function buildRankingPanel(rankingPanel, playerNames)
     local animating = false
 
     local function rowY(i)
-        return (i - 1) * (ROW_H + ROW_GAP)
+        return (i - 1) * (rowScale + 0.04)
     end
 
     local function renderRows()
@@ -1288,15 +1672,18 @@ local function buildRankingPanel(rankingPanel, playerNames)
         for i, name in ipairs(rowOrder) do
             local row = Instance.new("Frame")
             row.Name = "Row_"..i
-            row.Size = UDim2.new(1,-8,0,ROW_H)
-            row.Position = UDim2.new(0,4,0,rowY(i))
+            row.Size = UDim2.new(0.97, 0, rowScale, 0)
+            row.Position = UDim2.new(0.015, 0, rowY(i), 0)
             row.BackgroundColor3 = REVIEW.ROW
             row.BorderSizePixel = 0
             row.ZIndex = 9
             row.Parent = listContainer
             addCorner(row, 8)
             local st = Instance.new("UIStroke")
-            st.Color = REVIEW.CARD_STROKE; st.Thickness = 2; st.Parent = row
+            st.Color = REVIEW.CARD_STROKE
+            st.Thickness = 2
+            st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            st.Parent = row
 
             local rn = Instance.new("TextLabel")
             rn.Size = UDim2.new(0, 28, 1, 0)
@@ -1305,33 +1692,38 @@ local function buildRankingPanel(rankingPanel, playerNames)
             rn.TextXAlignment = Enum.TextXAlignment.Center
             rn.Parent = row
             applyReviewText(rn, 17, true)
+            rn.TextScaled = true
 
-            local av = makeReviewAvatar(row, AVATAR, name, 6, userIdByName[name])
+            local av = makeReviewAvatar(row, REVIEW.AV_SIZE, name, 6, userIdByName[name])
             av.AnchorPoint = Vector2.new(0, 0.5)
+            av.Size = UDim2.new(0, REVIEW.AV_SIZE, 0, REVIEW.AV_SIZE)
             av.Position = UDim2.new(0, 30, 0.5, 0)
 
             local nl = Instance.new("TextLabel")
-            nl.Size = UDim2.new(1, -(30 + AVATAR + BTN_AREA + 16), 1, 0)
-            nl.Position = UDim2.new(0, 30 + AVATAR + 6, 0, 0)
+            nl.AnchorPoint = Vector2.new(0, 0.5)
+            nl.Size = UDim2.new(0.38, 0, 1, 0)
+            nl.Position = UDim2.new(0, 30 + REVIEW.AV_SIZE + REVIEW.AV_GAP, 0.5, 0)
             nl.Text = name
             nl.TextXAlignment = Enum.TextXAlignment.Left
+            nl.TextYAlignment = Enum.TextYAlignment.Center
             nl.TextTruncate = Enum.TextTruncate.AtEnd
             nl.Parent = row
             applyReviewText(nl, 17, false)
+            nl.TextScaled = true
 
             local as = Instance.new("Frame")
-            as.Size = UDim2.new(0, BTN_AREA, 0, BTN_W)
+            as.Size = UDim2.new(0.28, 0, 0.72, 0)
             as.AnchorPoint = Vector2.new(1, 0.5)
-            as.Position = UDim2.new(1, -6, 0.5, 0)
+            as.Position = UDim2.new(0.98, 0, 0.5, 0)
             as.BackgroundTransparency = 1
             as.Parent = row
 
             local dn = Instance.new("TextButton")
-            dn.Size = UDim2.new(0, BTN_W, 1, 0)
+            dn.Size = UDim2.new(0.47, 0, 1, 0)
             dn.Position = UDim2.new(0, 0, 0, 0)
             dn.Text = "v"
             dn.Font = Enum.Font.GothamBlack
-            dn.TextSize = 20
+            dn.TextScaled = true
             dn.BorderSizePixel = 0
             dn.BackgroundColor3 = i == #rowOrder and Color3.fromRGB(120, 100, 180) or Color3.fromRGB(220, 70, 90)
             dn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1339,11 +1731,11 @@ local function buildRankingPanel(rankingPanel, playerNames)
             addCorner(dn, 6)
 
             local up = Instance.new("TextButton")
-            up.Size = UDim2.new(0, BTN_W, 1, 0)
-            up.Position = UDim2.new(0, BTN_W + BTN_GAP, 0, 0)
+            up.Size = UDim2.new(0.47, 0, 1, 0)
+            up.Position = UDim2.new(0.53, 0, 0, 0)
             up.Text = "^"
             up.Font = Enum.Font.GothamBlack
-            up.TextSize = 20
+            up.TextScaled = true
             up.BorderSizePixel = 0
             up.BackgroundColor3 = i == 1 and Color3.fromRGB(120, 100, 180) or Color3.fromRGB(55, 200, 110)
             up.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1365,11 +1757,11 @@ local function buildRankingPanel(rankingPanel, playerNames)
                 local b = listContainer:FindFirstChild("Row_" .. target)
                 if a and b then
                     local twA = TweenService:Create(a, TweenInfo.new(SWAP_T, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                        Position = UDim2.new(0, 4, 0, rowY(target)),
+                        Position = UDim2.new(0.015, 0, rowY(target), 0),
                         BackgroundColor3 = Color3.fromRGB(100, 80, 170),
                     })
                     local twB = TweenService:Create(b, TweenInfo.new(SWAP_T, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                        Position = UDim2.new(0, 4, 0, rowY(ci)),
+                        Position = UDim2.new(0.015, 0, rowY(ci), 0),
                         BackgroundColor3 = Color3.fromRGB(100, 80, 170),
                     })
                     twA:Play(); twB:Play()
@@ -1395,20 +1787,21 @@ local function buildRankingPanel(rankingPanel, playerNames)
 
     local submitBtn = Instance.new("TextButton")
     submitBtn.Name = "SubmitRankingBtn"
-    submitBtn.Size = UDim2.new(1, -16, 0, BTN_H)
+    submitBtn.Size = UDim2.new(0.94, 0, 0.16, 0)
     submitBtn.AnchorPoint = Vector2.new(0, 1)
-    submitBtn.Position = UDim2.new(0, 8, 1, -8)
+    submitBtn.Position = UDim2.new(0.03, 0, 0.98, 0)
     submitBtn.BackgroundColor3 = Color3.fromRGB(55, 215, 120)
     submitBtn.TextColor3 = Color3.fromRGB(255,255,255)
     submitBtn.Text = "Submit Ranking"
     submitBtn.Font = Enum.Font.GothamBold
-    submitBtn.TextSize = 17
+    submitBtn.TextScaled = false
+    submitBtn.TextSize = 15
     submitBtn.BorderSizePixel = 0
     submitBtn.Parent = rankingPanel
     addCorner(submitBtn, 8)
 
     rankingPanel.BackgroundTransparency = 1
-    rankingPanel.ClipsDescendants = true
+    rankingPanel.ClipsDescendants = false
 
     local pulse = TweenService:Create(submitBtn, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
         BackgroundColor3 = Color3.fromRGB(80, 240, 140),
@@ -1424,12 +1817,12 @@ local function buildRankingPanel(rankingPanel, playerNames)
         submitBtn.BackgroundColor3 = Color3.fromRGB(80,130,80)
         submitBtn.Text = "Submitted!"
         TweenService:Create(submitBtn, TweenInfo.new(0.2), {
-            Size = UDim2.new(1,-10,0,BTN_H+4),
+            Size = UDim2.new(0.96, 0, 0.18, 0),
         }):Play()
         task.delay(0.2, function()
             if submitBtn.Parent then
                 TweenService:Create(submitBtn, TweenInfo.new(0.2), {
-                    Size = UDim2.new(1,-16,0,BTN_H),
+                    Size = UDim2.new(0.94, 0, 0.16, 0),
                 }):Play()
             end
         end)
@@ -1450,7 +1843,7 @@ local function handleReview(reviewData, playerNames, totalTime)
     local timer        = leftPanel and leftPanel:FindFirstChild("TimerContainer")
         or reviewFrame:FindFirstChild("TimerContainer")
 
-    local panelH = 1 - (REVIEW.PAD_Y + REVIEW.PAD_B) / math.max(reviewFrame.AbsoluteSize.Y, 600)
+    local panelH = 1 - REVIEW.PAD_Y - REVIEW.PAD_B
     local startX = reviewStartX()
     local leftX = startX
     local rightX = startX + REVIEW.PANEL_W + REVIEW.GAP
@@ -1462,7 +1855,7 @@ local function handleReview(reviewData, playerNames, totalTime)
         leftPanel.BorderSizePixel = 0
         leftPanel.ClipsDescendants = false
         leftPanel.AnchorPoint = Vector2.new(0, 0)
-        leftPanel.Position = UDim2.new(leftX, 0, 0, REVIEW.PAD_Y)
+        leftPanel.Position = UDim2.new(leftX, 0, REVIEW.PAD_Y, 0)
         leftPanel.Size = UDim2.new(REVIEW.PANEL_W, 0, panelH, 0)
         leftPanel.ZIndex = 2
 
@@ -1484,7 +1877,7 @@ local function handleReview(reviewData, playerNames, totalTime)
         styleReviewCard(albumCard, REVIEW.CARD_BG, REVIEW.CARD_STROKE)
         albumCard.AnchorPoint = Vector2.new(0, 0)
         albumCard.Position = UDim2.new(0, 0, 0, 0)
-        albumCard.Size = UDim2.new(1, 0, 0.46, -8)
+        albumCard.Size = UDim2.new(1, 0, 0.46, 0)
         albumCard.ZIndex = 3
 
         local hdr = albumCard:FindFirstChild("AlbumHeader")
@@ -1495,12 +1888,13 @@ local function handleReview(reviewData, playerNames, totalTime)
             hdr.Font = Enum.Font.GothamBold
             hdr.Parent = albumCard
         end
-        hdr.Size = UDim2.new(1, -20, 0, 34)
-        hdr.Position = UDim2.new(0, 12, 0, 12)
+        hdr.Size = UDim2.new(0.94, 0, 0.16, 0)
+        hdr.Position = UDim2.new(0.03, 0, 0.04, 0)
         hdr.Text = "Albums"
         hdr.TextXAlignment = Enum.TextXAlignment.Left
         hdr.ZIndex = 4
         applyReviewText(hdr, 20, true)
+        hdr.TextScaled = true
     end
 
     local rankCard = leftPanel and leftPanel:FindFirstChild("RankCard")
@@ -1513,8 +1907,9 @@ local function handleReview(reviewData, playerNames, totalTime)
         styleReviewCard(rankCard, REVIEW.CARD_BG2, REVIEW.CARD_STROKE)
         rankCard.AnchorPoint = Vector2.new(0, 0)
         rankCard.Position = UDim2.new(0, 0, 0.48, 8)
-        rankCard.Size = UDim2.new(1, 0, 0.52, -8)
+        rankCard.Size = UDim2.new(1, 0, 0.52, 0)
         rankCard.ZIndex = 3
+        rankCard.ClipsDescendants = false
     end
 
     if playersPanel and albumCard then
@@ -1523,8 +1918,8 @@ local function handleReview(reviewData, playerNames, totalTime)
         playersPanel.BorderSizePixel = 0
         playersPanel.ScrollBarThickness = 6
         playersPanel.ScrollBarImageColor3 = REVIEW.CARD_STROKE
-        playersPanel.Position = UDim2.new(0, 8, 0, 58)
-        playersPanel.Size = UDim2.new(1, -16, 1, -66)
+        playersPanel.Position = UDim2.new(0.03, 0, 0.22, 0)
+        playersPanel.Size = UDim2.new(0.94, 0, 0.74, 0)
         playersPanel.ZIndex = 4
     end
 
@@ -1533,16 +1928,21 @@ local function handleReview(reviewData, playerNames, totalTime)
         rankingPanel.BackgroundTransparency = 1
         rankingPanel.BorderSizePixel = 0
         rankingPanel.AnchorPoint = Vector2.new(0, 0)
-        rankingPanel.Position = UDim2.new(0, 8, 0, 8)
-        rankingPanel.Size = UDim2.new(1, -16, 1, -16)
-        rankingPanel.AutomaticSize = Enum.AutomaticSize.None
+        rankingPanel.Position = UDim2.new(0.03, 0, 0.03, 0)
+        rankingPanel.Size = UDim2.new(0.94, 0, 0.94, 0)
+        rankingPanel.ClipsDescendants = false
         rankingPanel.ZIndex = 4
+        for _, c in ipairs(rankCard:GetChildren()) do
+            if c ~= rankingPanel and (c:IsA("TextLabel") or c:IsA("TextButton")) then
+                c.Visible = false
+            end
+        end
     end
 
     if mainWindow then
         styleReviewCard(mainWindow, REVIEW.RIGHT_BG, REVIEW.CARD_STROKE)
         mainWindow.AnchorPoint = Vector2.new(0, 0)
-        mainWindow.Position = UDim2.new(rightX, 0, 0, REVIEW.PAD_Y)
+        mainWindow.Position = UDim2.new(rightX, 0, REVIEW.PAD_Y, 0)
         mainWindow.Size = UDim2.new(REVIEW.PANEL_W, 0, panelH, 0)
         mainWindow.ClipsDescendants = true
         mainWindow.ZIndex = 2
@@ -1590,12 +1990,12 @@ local function handleReview(reviewData, playerNames, totalTime)
         showChainInMainWindow(chain, mainWindow)
     end
 
-    local TILE_H = 50
+    local TILE_H_SCALE = 0.22
 
     for i, chain in ipairs(reviewData) do
         local tile = Instance.new("TextButton")
         tile.Name              = "ChainTile_" .. i
-        tile.Size              = UDim2.new(1, -4, 0, TILE_H)
+        tile.Size              = UDim2.new(0.97, 0, TILE_H_SCALE, 0)
         tile.LayoutOrder       = i
         tile.BackgroundColor3  = REVIEW.TILE
         tile.Text              = ""
@@ -1610,19 +2010,15 @@ local function handleReview(reviewData, playerNames, totalTime)
         stroke2.Transparency = 0.15
         stroke2.Parent      = tile
 
-        local av = makeReviewAvatar(tile, 36, chain.startPlayerName, 6, chain.startPlayerUserId)
-        av.AnchorPoint = Vector2.new(0, 0.5)
-        av.Position = UDim2.new(0, 8, 0.5, 0)
-
+        local av = makeReviewAvatar(tile, REVIEW.AV_SIZE, chain.startPlayerName, 6, chain.startPlayerUserId)
         local nl = Instance.new("TextLabel")
-        nl.Size              = UDim2.new(1, -54, 1, 0)
-        nl.Position          = UDim2.new(0, 50, 0, 0)
         nl.Text              = chain.startPlayerName
-        nl.TextXAlignment    = Enum.TextXAlignment.Left
         nl.TextTruncate      = Enum.TextTruncate.AtEnd
         nl.ZIndex            = 6
         nl.Parent            = tile
         applyReviewText(nl, 17, false)
+        nl.TextScaled = true
+        layoutIconName(av, nl, REVIEW.AV_SIZE, 8)
 
         local capturedChain = chain
         addClickSound(tile)
@@ -1631,10 +2027,9 @@ local function handleReview(reviewData, playerNames, totalTime)
         end)
     end
 
-    local tileCount = #reviewData
     if playersPanel:IsA("ScrollingFrame") then
-        playersPanel.CanvasSize = UDim2.new(0, 0, 0, tileCount * (TILE_H + 6) + 8)
-        playersPanel.AutomaticCanvasSize = Enum.AutomaticSize.None
+        playersPanel.CanvasSize = UDim2.new(0, 0, 0, 0)
+        playersPanel.AutomaticCanvasSize = Enum.AutomaticSize.Y
     end
 
     task.delay(0.25, function()
@@ -1645,11 +2040,67 @@ local function handleReview(reviewData, playerNames, totalTime)
     end)
 end
 
-local function playPodiumAnim(humanoid, place)
-    if not humanoid then return end
-    pcall(function()
-        humanoid.EvaluateStateMachine = false
+local podiumAnimIds = {}
+local podiumClipHold = Instance.new("Folder")
+podiumClipHold.Name = "PodiumClipHold"
+podiumClipHold.Parent = PlayerGui
+
+local function getPodiumDanceId(place)
+    local name = Config["PODIUM_DANCE_" .. tostring(place)]
+    if type(name) ~= "string" or name == "" then
+        return ""
+    end
+    if podiumAnimIds[name] then
+        return podiumAnimIds[name]
+    end
+    local folder = ReplicatedStorage:FindFirstChild("PodiumAnims")
+        or ReplicatedStorage:WaitForChild("PodiumAnims", 5)
+    local seq = folder and folder:FindFirstChild(name)
+    if not (seq and seq:IsA("KeyframeSequence")) then
+        return ""
+    end
+    local old = podiumClipHold:FindFirstChild(name)
+    if old then
+        old:Destroy()
+    end
+    local clone = seq:Clone()
+    clone.Name = name
+    clone.Loop = true
+    clone.Parent = podiumClipHold
+    local function register(fn)
+        local ok, id = pcall(fn)
+        if not ok or id == nil then
+            return ""
+        end
+        id = tostring(id)
+        if id == "" or id == "nil" then
+            return ""
+        end
+        if string.find(id, "rbxassetid://") and not string.match(id, "^rbxassetid://%d%d%d") then
+            return ""
+        end
+        if string.match(id, "^%d+$") then
+            return "rbxassetid://" .. id
+        end
+        return id
+    end
+    local id = register(function()
+        return AnimationClipProvider:RegisterActiveAnimationClip(clone)
     end)
+    if id == "" then
+        id = register(function()
+            return AnimationClipProvider:RegisterAnimationClip(clone)
+        end)
+    end
+    if id ~= "" then
+        podiumAnimIds[name] = id
+        return id
+    end
+    return ""
+end
+
+local function playPodiumAnim(humanoid, place)
+    if not humanoid or not humanoid.Parent then return end
     humanoid.AutoRotate = false
     humanoid.PlatformStand = false
     local animator = humanoid:FindFirstChildOfClass("Animator")
@@ -1662,26 +2113,19 @@ local function playPodiumAnim(humanoid, place)
             t:Stop(0)
         end
     end)
-    local r6 = humanoid.RigType == Enum.HumanoidRigType.R6
-    local list = r6 and Config.PODIUM_DANCE_R6 or Config.PODIUM_DANCE_R15
-    local override = Config["PODIUM_DANCE_" .. tostring(place)]
-    local id = ""
-    if type(override) == "string" and override ~= "" then
-        id = override
-    elseif type(list) == "table" then
-        id = list[((place - 1) % #list) + 1] or list[1]
-    end
-    local numeric = tonumber(tostring(id):match("%d+"))
-    if not numeric then return end
+    local id = getPodiumDanceId(place)
+    if id == "" then return end
     local anim = Instance.new("Animation")
-    anim.AnimationId = "rbxassetid://" .. tostring(numeric)
+    anim.Name = "PodiumDance"
+    anim.AnimationId = id
+    anim.Parent = humanoid
     local ok, track = pcall(function()
         return animator:LoadAnimation(anim)
     end)
     if ok and track then
         track.Looped = true
-        track.Priority = Enum.AnimationPriority.Idle
-        track:Play(0.25, 1, 1)
+        track.Priority = Enum.AnimationPriority.Action4
+        track:Play(0.15, 1, 1)
     end
 end
 
@@ -1689,9 +2133,6 @@ local function preparePodiumRig(model)
     if not model then return end
     local hum = model:FindFirstChildOfClass("Humanoid")
     if hum then
-        pcall(function()
-            hum.EvaluateStateMachine = false
-        end)
         hum.AutoRotate = false
         hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
     end
@@ -1737,128 +2178,116 @@ local function standOnPodium(model, x, topY)
     end
 end
 
-local function decoratePodiumPart(part, place, name, reward, accent)
-    local sg = part:FindFirstChildOfClass("SurfaceGui")
-    if not sg then
-        sg = Instance.new("SurfaceGui")
-        sg.Parent = part
+local function worldToVp(cam, worldPos, abs)
+    local lp = cam.CFrame:PointToObjectSpace(worldPos)
+    local depth = -lp.Z
+    if depth < 0.05 then
+        return 0.5, 0.5
     end
-    -- Camera sits at +Z; part Front is -Z. Back face is what the camera sees.
-    sg.Face = Enum.NormalId.Back
-    sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-    sg.PixelsPerStud = 40
-    sg.LightInfluence = 0
-    sg.AlwaysOnTop = false
-    sg.ZOffset = 1
-    for _, c in ipairs(sg:GetChildren()) do c:Destroy() end
+    local aspect = abs.X / math.max(abs.Y, 1)
+    local halfH = math.tan(math.rad(cam.FieldOfView) * 0.5)
+    local halfW = halfH * aspect
+    return 0.5 + (lp.X / depth) / (2 * halfW), 0.5 - (lp.Y / depth) / (2 * halfH)
+end
 
-    local wrap = Instance.new("Frame")
-    wrap.Size = UDim2.fromScale(1, 1)
-    wrap.BackgroundTransparency = 1
-    wrap.Parent = sg
-
-    local placeLbl = Instance.new("TextLabel")
-    placeLbl.Size = UDim2.new(1, -10, 0.42, 0)
-    placeLbl.Position = UDim2.new(0, 5, 0.04, 0)
-    placeLbl.BackgroundTransparency = 1
-    placeLbl.Font = Enum.Font.GothamBlack
-    placeLbl.TextScaled = true
-    placeLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-    placeLbl.Text = tostring(place)
-    placeLbl.Parent = wrap
+local function makePodiumOverlay(parent, cam, vp, place, name, reward, accent, spec)
+    local abs = vp.AbsoluteSize
+    if abs.X < 2 then
+        abs = Vector2.new(800, 500)
+    end
+    local VP_SW, VP_SH = 0.96, 0.92
+    local left = 0.5 - VP_SW * 0.5
+    local top = 0.46 - VP_SH * 0.5
+    local half = 2.2
+    local x1 = worldToVp(cam, Vector3.new(spec.x - half, spec.h, 2.2), abs)
+    local x2 = worldToVp(cam, Vector3.new(spec.x + half, spec.h, 2.2), abs)
+    local sx, sy = worldToVp(cam, Vector3.new(spec.x, spec.h, 2.2), abs)
+    local w = math.clamp(math.abs(x2 - x1) * 0.9, 0.08, 0.22)
+    local card = Instance.new("Frame")
+    card.Name = "PodiumLabel_" .. tostring(place)
+    card.AnchorPoint = Vector2.new(0.5, 0)
+    card.Position = UDim2.new(left + sx * VP_SW, 0, top + (sy + 0.01) * VP_SH, 0)
+    card.Size = UDim2.new(w * VP_SW, 0, 0.045 * VP_SH, 0)
+    card.BackgroundColor3 = Color3.fromRGB(18, 10, 40)
+    card.BackgroundTransparency = 0.55
+    card.BorderSizePixel = 0
+    card.ZIndex = 12
+    card.Parent = parent
+    addCorner(card, 6)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = accent
+    stroke.Thickness = 1
+    stroke.Transparency = 0.35
+    stroke.Parent = card
 
     local nameLbl = Instance.new("TextLabel")
-    nameLbl.Size = UDim2.new(1, -12, 0.28, 0)
-    nameLbl.Position = UDim2.new(0, 6, 0.46, 0)
+    nameLbl.Size = UDim2.new(0.94, 0, 0.52, 0)
+    nameLbl.Position = UDim2.new(0.03, 0, 0.04, 0)
     nameLbl.BackgroundTransparency = 1
     nameLbl.Font = Enum.Font.GothamBold
     nameLbl.TextScaled = true
-    nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLbl.TextColor3 = Color3.fromRGB(245, 245, 255)
+    nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
     nameLbl.Text = name or ""
-    nameLbl.Parent = wrap
+    nameLbl.ZIndex = 13
+    nameLbl.Parent = card
+    local nCap = Instance.new("UITextSizeConstraint")
+    nCap.MinTextSize = 10
+    nCap.MaxTextSize = 16
+    nCap.Parent = nameLbl
 
     local coinLbl = Instance.new("TextLabel")
-    coinLbl.Size = UDim2.new(1, -12, 0.22, 0)
-    coinLbl.Position = UDim2.new(0, 6, 0.74, 0)
+    coinLbl.Size = UDim2.new(0.94, 0, 0.4, 0)
+    coinLbl.Position = UDim2.new(0.03, 0, 0.54, 0)
     coinLbl.BackgroundTransparency = 1
-    coinLbl.Font = Enum.Font.GothamBold
+    coinLbl.Font = Enum.Font.Gotham
     coinLbl.TextScaled = true
-    coinLbl.TextColor3 = accent
+    coinLbl.TextColor3 = Color3.fromRGB(255, 220, 90)
     coinLbl.Text = "+" .. tostring(reward or 0) .. " Coins"
-    coinLbl.Parent = wrap
+    coinLbl.ZIndex = 13
+    coinLbl.Parent = card
+    local cCap = Instance.new("UITextSizeConstraint")
+    cCap.MinTextSize = 9
+    cCap.MaxTextSize = 14
+    cCap.Parent = coinLbl
+    return card
 end
 
 local function createPodiumModel(userId, playerName)
+    local desc = nil
     local plr = findPlayer(userId, playerName)
     if plr and plr.Character then
         local hum = plr.Character:FindFirstChildOfClass("Humanoid")
         if hum then
-            local okDesc, desc = pcall(function()
+            local okDesc, applied = pcall(function()
                 return hum:GetAppliedDescription()
             end)
-            if okDesc and desc then
-                local okModel, model = pcall(function()
-                    return Players:CreateHumanoidModelFromDescription(desc, hum.RigType)
-                end)
-                if okModel and model then
-                    return model
-                end
+            if okDesc then
+                desc = applied
             end
         end
-        local clone = nil
-        local wasArchivable = plr.Character.Archivable
-        plr.Character.Archivable = true
-        local okClone, result = pcall(function()
-            return plr.Character:Clone()
-        end)
-        plr.Character.Archivable = wasArchivable
-        if okClone and result then
-            clone = result
-        end
-        if not clone then
-            return nil
-        end
-        for _, d in ipairs(clone:GetDescendants()) do
-            if d:IsA("BasePart") then
-                d.Anchored = true
-                d.CanCollide = false
-                d.LocalTransparencyModifier = 0
-                if d.Name == "HumanoidRootPart" then
-                    d.Transparency = 1
-                elseif d.Transparency >= 1 then
-                    d.Transparency = 0
-                end
-            elseif d:IsA("Decal") or d:IsA("Texture") then
-                d.Transparency = 0
-            elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("BillboardGui") or d:IsA("ProximityPrompt") then
-                d:Destroy()
-            end
-        end
-        return clone
     end
-
     userId = tonumber(userId) or resolveUserId(playerName, userId)
-    if userId and userId > 0 then
-        local ok, model = pcall(function()
-            return Players:CreateHumanoidModelFromUserIdAsync(userId)
-        end)
-        if ok and model then
-            return model
-        end
-        local okDesc, desc = pcall(function()
+    if not desc and userId and userId > 0 then
+        local okDesc, fetched = pcall(function()
             return Players:GetHumanoidDescriptionFromUserIdAsync(userId)
         end)
-        if okDesc and desc then
-            local okModel, model = pcall(function()
-                return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
-            end)
-            if okModel and model then
-                return model
-            end
+        if okDesc then
+            desc = fetched
+        end
+    end
+    if desc then
+        local okModel, model = pcall(function()
+            return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+        end)
+        if okModel and model then
+            return model
         end
     end
     return nil
 end
+
+local confettiConn = nil
 
 local function handleResults(results)
     showFrame(resultsFrame)
@@ -1911,14 +2340,15 @@ local function handleResults(results)
         [2] = { x = -5.6, h = 3.8, color = COL[2].bg },
         [3] = { x = 5.6,  h = 2.6, color = COL[3].bg },
     }
-    local podiumParts = {}
     for place, spec in pairs(blocks) do
-        local part = makePodiumPart(world, Vector3.new(4.4, spec.h, 4.4), CFrame.new(spec.x, spec.h * 0.5, 0), spec.color)
-        podiumParts[place] = part
-        decoratePodiumPart(part, place, "", 0, COL[place].glow)
+        makePodiumPart(world, Vector3.new(4.4, spec.h, 4.4), CFrame.new(spec.x, spec.h * 0.5, 0), spec.color)
     end
 
     task.spawn(function()
+        for _ = 1, 8 do
+            if vp.AbsoluteSize.X > 4 then break end
+            task.wait(0.05)
+        end
         for place = 1, 3 do
             local entry = top3[place]
             if not entry then continue end
@@ -1928,26 +2358,34 @@ local function handleResults(results)
             model.Parent = world
             preparePodiumRig(model)
             standOnPodium(model, spec.x, spec.h)
+            makePodiumOverlay(
+                listFrame,
+                cam,
+                vp,
+                place,
+                entry.name,
+                entry.reward,
+                COL[place].glow,
+                spec
+            )
             local hum = model:FindFirstChildOfClass("Humanoid")
             if hum then
-                task.delay(0.05, function()
+                task.delay(0.2, function()
                     if hum.Parent then
                         playPodiumAnim(hum, place)
                     end
                 end)
             end
-            decoratePodiumPart(podiumParts[place], place, entry.name, entry.reward, COL[place].glow)
         end
     end)
 
     local function makeSideCard(entry, place, side)
-        local TILE_W, TILE_H = 210, 64
         local tile = Instance.new("Frame")
-        tile.Size = UDim2.new(0, TILE_W, 0, TILE_H)
+        tile.Size = UDim2.new(0.22, 0, 0.1, 0)
         tile.AnchorPoint = side == "left" and Vector2.new(0, 0) or Vector2.new(1, 0)
         tile.Position = side == "left"
-            and UDim2.new(0, 16, 0.86, 0)
-            or  UDim2.new(1, -16, 0.86, 0)
+            and UDim2.new(0.02, 0, 0.86, 0)
+            or  UDim2.new(0.98, 0, 0.86, 0)
         tile.BackgroundColor3 = Color3.fromRGB(40, 24, 90)
         tile.BorderSizePixel = 0
         tile.ZIndex = 5
@@ -1959,9 +2397,10 @@ local function handleResults(results)
         ts.Parent = tile
 
         local avS = Instance.new("ImageLabel")
-        avS.Size = UDim2.new(0, 40, 0, 40)
+        avS.Size = UDim2.new(0.22, 0, 0.7, 0)
+        avS.SizeConstraint = Enum.SizeConstraint.RelativeYY
         avS.AnchorPoint = Vector2.new(0, 0.5)
-        avS.Position = UDim2.new(0, 10, 0.5, 0)
+        avS.Position = UDim2.new(0.04, 0, 0.5, 0)
         avS.BackgroundColor3 = Color3.fromRGB(50, 30, 100)
         avS.BorderSizePixel = 0
         avS.Parent = tile
@@ -1971,25 +2410,25 @@ local function handleResults(results)
         end)
 
         local nL = Instance.new("TextLabel")
-        nL.Size = UDim2.new(1, -62, 0, 24)
-        nL.Position = UDim2.new(0, 56, 0, 6)
+        nL.Size = UDim2.new(0.68, 0, 0.42, 0)
+        nL.Position = UDim2.new(0.3, 0, 0.08, 0)
         nL.BackgroundTransparency = 1
         nL.TextColor3 = Color3.fromRGB(245, 235, 255)
         nL.Text = "#" .. place .. " " .. entry.name
         nL.Font = Enum.Font.GothamBold
-        nL.TextSize = 14
+        nL.TextScaled = true
         nL.TextXAlignment = Enum.TextXAlignment.Left
         nL.TextTruncate = Enum.TextTruncate.AtEnd
         nL.Parent = tile
 
         local cL = Instance.new("TextLabel")
-        cL.Size = UDim2.new(1, -62, 0, 20)
-        cL.Position = UDim2.new(0, 56, 0, 32)
+        cL.Size = UDim2.new(0.68, 0, 0.36, 0)
+        cL.Position = UDim2.new(0.3, 0, 0.52, 0)
         cL.BackgroundTransparency = 1
         cL.TextColor3 = Color3.fromRGB(255, 210, 70)
         cL.Text = "+" .. tostring(entry.reward) .. " Coins"
         cL.Font = Enum.Font.GothamBold
-        cL.TextSize = 13
+        cL.TextScaled = true
         cL.TextXAlignment = Enum.TextXAlignment.Left
         cL.Parent = tile
     end
@@ -1997,51 +2436,87 @@ local function handleResults(results)
     if rest[1] then makeSideCard(rest[1], 4, "left") end
     if rest[2] then makeSideCard(rest[2], 5, "right") end
 
+    if confettiConn then
+        confettiConn:Disconnect()
+        confettiConn = nil
+    end
+    local oldBits = resultsFrame:FindFirstChild("ConfettiPool")
+    if oldBits then
+        oldBits:Destroy()
+    end
+    local pool = Instance.new("Folder")
+    pool.Name = "ConfettiPool"
+    pool.Parent = resultsFrame
     local confColors = {
         Color3.fromRGB(255,40,40),   Color3.fromRGB(0,230,255),
         Color3.fromRGB(255,215,0),   Color3.fromRGB(0,255,110),
         Color3.fromRGB(255,0,230),   Color3.fromRGB(255,120,0),
-        Color3.fromRGB(60,255,190),  Color3.fromRGB(255,50,170),
-        Color3.fromRGB(130,255,0),   Color3.fromRGB(50,90,255),
-        Color3.fromRGB(255,255,80),  Color3.fromRGB(180,0,255),
+        Color3.fromRGB(60,255,190),  Color3.fromRGB(255,255,80),
     }
-    local function spawnWave(count, spread)
-        for k = 1, count do
-            task.spawn(function()
-                task.wait(math.random() * spread)
-                local r = math.random()
-                local conf = Instance.new("Frame")
-                if r < 0.4 then
-                    conf.Size = UDim2.new(0, math.random(4,8), 0, math.random(16,28))
-                elseif r < 0.7 then
-                    local sz = math.random(8,15)
-                    conf.Size = UDim2.new(0, sz, 0, sz)
-                else
-                    conf.Size = UDim2.new(0, math.random(14,22), 0, math.random(5,9))
-                end
-                conf.Position = UDim2.new(math.random()*0.96+0.02, 0, -0.07, 0)
-                conf.BackgroundColor3 = confColors[math.random(#confColors)]
-                conf.BorderSizePixel = 0
-                conf.Rotation = math.random()*360
-                conf.ZIndex = 20
-                conf.Parent = resultsFrame
-                addCorner(conf, 3)
-                local fallTime = math.random()*2.4 + 1.2
-                local swayX   = math.random(-130, 130)
-                local tw = TweenService:Create(conf,
-                    TweenInfo.new(fallTime, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-                    { Position = UDim2.new(conf.Position.X.Scale, conf.Position.X.Offset + swayX, 1.12, 0),
-                      Rotation = conf.Rotation + math.random(-400, 400) })
-                tw:Play()
-                tw.Completed:Connect(function() conf:Destroy() end)
-            end)
+    local emitters = { 0.32, 0.5, 0.68 }
+    local GRAV = 1.35
+    local bits = {}
+
+    local function launch(p, fromRest)
+        local ex = emitters[((p.i - 1) % 3) + 1] + (math.random() - 0.5) * 0.04
+        local ey = 0.5 + (math.random() - 0.5) * 0.04
+        p.x, p.y = ex, ey
+        local spd = 0.7 + math.random() * 1.1
+        p.vx = (math.random() * 2 - 1) * spd * 0.7
+        p.vy = -(0.45 + math.random() * 0.9)
+        p.vr = (math.random() - 0.5) * 520
+        p.rot = math.random() * 360
+        p.flip = 0.8 + math.random() * 2.2
+        p.phase = math.random() * math.pi * 2
+        if fromRest then
+            p.y += (math.random() - 0.5) * 0.35
         end
+        local strip = math.random() < 0.65
+        if strip then
+            p.gui.Size = UDim2.fromOffset(math.random(4, 7), math.random(12, 20))
+        else
+            local sz = math.random(7, 12)
+            p.gui.Size = UDim2.fromOffset(sz, sz)
+        end
+        p.gui.BackgroundColor3 = confColors[math.random(#confColors)]
+        p.gui.BackgroundTransparency = 0
     end
-    spawnWave(120, 3.0)
-    task.delay(2.0, function() spawnWave(80,  2.0) end)
-    task.delay(4.0, function() spawnWave(70,  2.0) end)
-    task.delay(6.0, function() spawnWave(60,  1.8) end)
-    task.delay(8.0, function() spawnWave(50,  1.5) end)
+
+    for i = 1, 40 do
+        local conf = Instance.new("Frame")
+        conf.BorderSizePixel = 0
+        conf.ZIndex = 20
+        conf.Rotation = math.random() * 360
+        conf.Parent = pool
+        bits[i] = { i = i, gui = conf, x = 0.5, y = 0.5, vx = 0, vy = 0, rot = 0, vr = 0, flip = 1, phase = 0 }
+        launch(bits[i], true)
+    end
+    confettiConn = RunService.Heartbeat:Connect(function(dt)
+        if not resultsFrame.Visible or not pool.Parent then
+            if confettiConn then
+                confettiConn:Disconnect()
+                confettiConn = nil
+            end
+            return
+        end
+        dt = math.min(dt, 1 / 30)
+        for _, p in ipairs(bits) do
+            p.vy += GRAV * dt
+            p.vx += math.sin(p.phase + p.y * 8) * 0.35 * dt
+            p.x += p.vx * dt
+            p.y += p.vy * dt
+            p.rot += p.vr * dt
+            p.phase += p.flip * dt
+            local flutter = 0.35 + 0.65 * math.abs(math.sin(p.phase))
+            p.gui.BackgroundTransparency = 1 - flutter
+            if p.y > 1.12 or p.y < -0.2 or p.x < -0.12 or p.x > 1.12 then
+                launch(p, false)
+            else
+                p.gui.Position = UDim2.new(p.x, 0, p.y, 0)
+                p.gui.Rotation = p.rot
+            end
+        end
+    end)
 
     local returnBtn = resultsFrame:FindFirstChild("ReturnButton")
     if returnBtn and not returnBtn:GetAttribute("WiredReturn") then
@@ -2050,6 +2525,14 @@ local function handleResults(results)
         addClickSound(returnBtn)
         returnBtn.MouseButton1Click:Connect(function()
             ReturnToLobby:FireServer()
+            if confettiConn then
+                confettiConn:Disconnect()
+                confettiConn = nil
+            end
+            local bitsFolder = resultsFrame:FindFirstChild("ConfettiPool")
+            if bitsFolder then
+                bitsFolder:Destroy()
+            end
             for _, f in ipairs(allFrames) do f.Visible = false end
             screenGui:SetAttribute("InQueue", false)
             local hud = screenGui:FindFirstChild("HudCoinsLabel")

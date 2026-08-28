@@ -2,12 +2,12 @@ local Players           = game:GetService("Players")
 local TweenService      = game:GetService("TweenService")
 local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TeleportService   = game:GetService("TeleportService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
 local Config    = require(ReplicatedStorage:WaitForChild("GameConfig"))
+local UiScaler  = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("UiScaler"))
 local Remotes   = ReplicatedStorage:WaitForChild("Remotes")
 local SyncTimer = Remotes:WaitForChild("SyncTimer")
 
@@ -89,16 +89,26 @@ task.delay(2, function()
 
     wp.ClipsDescendants = true
 
+    local wl = wp:FindFirstChild("WaitingLabel") or lf:FindFirstChild("WaitingLabel", true)
+    if wl then
+        wl.ZIndex = 10
+        wl.TextXAlignment = Enum.TextXAlignment.Center
+        wl.TextYAlignment = Enum.TextYAlignment.Center
+        wl.Size = UDim2.new(0.86, 0, 0.55, 0)
+        wl.Position = UDim2.new(0.5, 0, 0.5, 0)
+        wl.AnchorPoint = Vector2.new(0.5, 0.5)
+    end
+
     local SQUARE_COLORS = {
         Color3.fromRGB(120, 180, 255),
         Color3.fromRGB(140, 100, 255),
         Color3.fromRGB(80, 220, 200),
         Color3.fromRGB(180, 140, 255),
     }
-    local SIZES  = {11, 8, 6, 5}
-    local GAP    = 5
-    local MARGIN = 7
-    local SPEED  = 240
+    local SIZES  = {10, 8, 6, 5}
+    local GAP    = 6
+    local EDGE   = 6
+    local SPEED  = 180
 
     local squares = {}
     for i = 1, 4 do
@@ -108,7 +118,7 @@ task.delay(2, function()
         sq.BackgroundColor3       = SQUARE_COLORS[i]
         sq.BorderSizePixel        = 0
         sq.BackgroundTransparency = 0.10
-        sq.ZIndex                 = 6
+        sq.ZIndex                 = 3
         sq.Parent                 = wp
         local uc = Instance.new("UICorner")
         uc.CornerRadius = UDim.new(0, 2)
@@ -124,10 +134,10 @@ task.delay(2, function()
             x = -W * 0.5 + t ; y = -H * 0.5
         elseif t < W + H then
             x = W * 0.5      ; y = -H * 0.5 + (t - W)
-        elseif t < 2*W + H then
+        elseif t < 2 * W + H then
             x = W * 0.5 - (t - W - H) ; y = H * 0.5
         else
-            x = -W * 0.5     ; y = H * 0.5 - (t - 2*W - H)
+            x = -W * 0.5     ; y = H * 0.5 - (t - 2 * W - H)
         end
         return x, y
     end
@@ -137,15 +147,14 @@ task.delay(2, function()
     RunService.Heartbeat:Connect(function()
         if not lf.Visible then return end
 
-        local wpSz = wp.AbsoluteSize
-        if wpSz.X <= 0 then return end
+        local uw, uh = UiScaler.unscaledSize(wp)
+        if uw <= 0 or uh <= 0 then return end
 
-        local pathW = wpSz.X - MARGIN * 2 - SIZES[1]
-        local pathH = wpSz.Y - MARGIN * 2 - SIZES[1]
-        if pathW <= 0 or pathH <= 0 then return end
+        local pathW = math.max(8, uw - EDGE * 2 - SIZES[1])
+        local pathH = math.max(8, uh - EDGE * 2 - SIZES[1])
 
-        local cx = wpSz.X * 0.5
-        local cy = wpSz.Y * 0.5
+        local cx = uw * 0.5
+        local cy = uh * 0.5
 
         local elapsed = tick() - startTime
         local perim   = 2 * (pathW + pathH)
