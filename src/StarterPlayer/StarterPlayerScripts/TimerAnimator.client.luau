@@ -92,11 +92,21 @@ task.delay(2, function()
     local wl = wp:FindFirstChild("WaitingLabel") or lf:FindFirstChild("WaitingLabel", true)
     if wl then
         wl.ZIndex = 10
+        wl.Font = Enum.Font.GothamBold
+        wl.TextScaled = true
+        wl.TextWrapped = true
         wl.TextXAlignment = Enum.TextXAlignment.Center
         wl.TextYAlignment = Enum.TextYAlignment.Center
-        wl.Size = UDim2.new(0.86, 0, 0.55, 0)
+        wl.Size = UDim2.new(0.9, 0, 0.62, 0)
         wl.Position = UDim2.new(0.5, 0, 0.5, 0)
         wl.AnchorPoint = Vector2.new(0.5, 0.5)
+        local wCap = wl:FindFirstChildOfClass("UITextSizeConstraint")
+        if not wCap then
+            wCap = Instance.new("UITextSizeConstraint")
+            wCap.Parent = wl
+        end
+        wCap.MinTextSize = 22
+        wCap.MaxTextSize = 36
     end
 
     local SQUARE_COLORS = {

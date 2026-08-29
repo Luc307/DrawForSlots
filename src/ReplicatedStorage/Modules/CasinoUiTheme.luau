@@ -24,12 +24,12 @@ CasinoUiTheme.THEME = {
 	TILE_PLINKO = Color3.fromRGB(48, 210, 150),
 	TILE_WHEEL = Color3.fromRGB(255, 90, 120),
 	TILE_MINES = Color3.fromRGB(70, 180, 255),
-	TEXT_MIN = 10,
-	TEXT_MAX = 26,
-	TITLE_MIN = 12,
-	TITLE_MAX = 28,
-	BTN_MIN = 10,
-	BTN_MAX = 28,
+	TEXT_MIN = 16,
+	TEXT_MAX = 120,
+	TITLE_MIN = 22,
+	TITLE_MAX = 120,
+	BTN_MIN = 18,
+	BTN_MAX = 120,
 	RESULT_BG = Color3.fromRGB(12, 18, 40),
 	RESULT_WIN_BG = Color3.fromRGB(16, 58, 40),
 	RESULT_LOSS_BG = Color3.fromRGB(58, 16, 28),
@@ -67,47 +67,41 @@ function CasinoUiTheme.fitText(obj, minSize, maxSize)
 	if not obj or not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then
 		return
 	end
-	obj.TextScaled = true
-	local t = obj.Text or ""
-	obj.TextWrapped = #t > 10
-	obj.TextTruncate = Enum.TextTruncate.AtEnd
-	local c = obj:FindFirstChildOfClass("UITextSizeConstraint")
-	if not c then
-		c = Instance.new("UITextSizeConstraint")
-		c.Parent = obj
+	obj.AutomaticSize = Enum.AutomaticSize.None
+	obj.ClipsDescendants = false
+	obj.TextTruncate = Enum.TextTruncate.None
+	local cap = obj:FindFirstChildOfClass("UITextSizeConstraint")
+	if cap then
+		cap:Destroy()
 	end
-	local wantMin = minSize or THEME.TEXT_MIN
-	local wantMax = maxSize or THEME.TEXT_MAX
-	local function applyCap()
+	local minS = tonumber(minSize) or THEME.TEXT_MIN
+	local maxS = tonumber(maxSize) or THEME.TEXT_MAX
+	local function apply()
+		local t = obj.Text or ""
 		local h = obj.AbsoluteSize.Y
 		local w = obj.AbsoluteSize.X
-		local floor = 8
-		local minUse = wantMin
-		local maxUse = wantMax
-		if h > 2 then
-			minUse = math.min(minUse, math.max(floor, math.floor(h * 0.45)))
-			maxUse = math.min(maxUse, math.max(minUse, math.floor(h * 0.78)))
+		if h < 4 or w < 4 then
+			return
 		end
-		if w > 2 then
-			local n = math.max(#(obj.Text or ""), 1)
-			local byW = math.floor(w / (n * 0.42))
-			if byW > 0 then
-				maxUse = math.min(maxUse, math.max(minUse, byW))
-			end
+		local n = math.max(#t, 1)
+		local byH = math.floor(h * 0.68)
+		local size
+		if n <= 2 then
+			size = math.min(byH, math.floor(w * 0.72))
+		else
+			size = math.min(byH, math.floor(w / (n * 0.68)))
 		end
-		if maxUse < minUse then
-			minUse = maxUse
-		end
-		c.MinTextSize = minUse
-		c.MaxTextSize = maxUse
+		obj.TextScaled = false
+		obj.TextWrapped = n > 18
+		obj.TextSize = math.clamp(size, minS, maxS)
 	end
-	applyCap()
-	if obj:GetAttribute("FitCapWired") ~= true then
-		obj:SetAttribute("FitCapWired", true)
-		obj:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyCap)
-		obj:GetPropertyChangedSignal("Text"):Connect(applyCap)
+	apply()
+	task.defer(apply)
+	if obj:GetAttribute("FitHWired") ~= true then
+		obj:SetAttribute("FitHWired", true)
+		obj:GetPropertyChangedSignal("AbsoluteSize"):Connect(apply)
+		obj:GetPropertyChangedSignal("Text"):Connect(apply)
 	end
-	return c
 end
 
 function CasinoUiTheme.styleGhostBtn(btn)
@@ -118,10 +112,14 @@ function CasinoUiTheme.styleGhostBtn(btn)
 	btn.BackgroundTransparency = THEME.GHOST_T
 	btn.TextColor3 = THEME.GHOST_TEXT
 	btn.AutoButtonColor = false
-	btn.Font = Enum.Font.Gotham
+	btn.Font = Enum.Font.GothamBlack
 	CasinoUiTheme.fitText(btn, THEME.BTN_MIN, THEME.BTN_MAX)
 	ensureCorner(btn, 12)
-	ensureStroke(btn, THEME.STROKE, 1.5)
+	local stroke = btn:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke:Destroy()
+	end
+	btn.TextStrokeTransparency = 1
 end
 
 function CasinoUiTheme.stylePrimaryBtn(btn)
@@ -133,7 +131,7 @@ function CasinoUiTheme.stylePrimaryBtn(btn)
 	btn.TextColor3 = Color3.fromRGB(30, 22, 10)
 	btn.AutoButtonColor = false
 	btn.Font = Enum.Font.GothamBlack
-	CasinoUiTheme.fitText(btn, 20, 42)
+	CasinoUiTheme.fitText(btn, THEME.BTN_MIN, THEME.BTN_MAX)
 	ensureCorner(btn, THEME.CORNER)
 	ensureStroke(btn, Color3.fromRGB(255, 230, 140), THEME.STROKE_W)
 	local grad = btn:FindFirstChildOfClass("UIGradient")
@@ -144,6 +142,41 @@ function CasinoUiTheme.stylePrimaryBtn(btn)
 	grad.Color = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 225, 120)),
 		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 165, 55)),
+	})
+	grad.Rotation = 90
+end
+
+function CasinoUiTheme.styleCollectBtn(btn, active)
+	if not btn or not btn:IsA("GuiButton") then
+		return
+	end
+	btn.Text = "COLLECT"
+	btn.Visible = true
+	btn.AutoButtonColor = false
+	btn.Font = Enum.Font.GothamBlack
+	CasinoUiTheme.fitText(btn, THEME.BTN_MIN, THEME.BTN_MAX)
+	btn.TextTruncate = Enum.TextTruncate.None
+	btn.TextWrapped = false
+	ensureCorner(btn, THEME.CORNER)
+	local grad = btn:FindFirstChildOfClass("UIGradient")
+	if not grad then
+		grad = Instance.new("UIGradient")
+		grad.Parent = btn
+	end
+	if active then
+		CasinoUiTheme.stylePrimaryBtn(btn)
+		btn.Text = "COLLECT"
+		btn.TextTruncate = Enum.TextTruncate.None
+		btn.TextWrapped = false
+		return
+	end
+	btn.BackgroundColor3 = Color3.fromRGB(72, 80, 98)
+	btn.BackgroundTransparency = 0
+	btn.TextColor3 = Color3.fromRGB(170, 176, 188)
+	ensureStroke(btn, Color3.fromRGB(110, 118, 132), THEME.STROKE_W)
+	grad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(96, 104, 120)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(64, 70, 86)),
 	})
 	grad.Rotation = 90
 end
@@ -165,6 +198,7 @@ function CasinoUiTheme.styleTitle(lbl)
 	lbl.BackgroundTransparency = 1
 	lbl.TextColor3 = THEME.TITLE
 	lbl.Font = Enum.Font.GothamBlack
+	lbl.AutomaticSize = Enum.AutomaticSize.None
 	CasinoUiTheme.fitText(lbl, THEME.TITLE_MIN, THEME.TITLE_MAX)
 end
 
@@ -184,9 +218,10 @@ function CasinoUiTheme.ensureGameTitle(page: Frame, text: string)
 		title.Visible = true
 		title.ZIndex = 55
 		title.AnchorPoint = Vector2.new(0.5, 0)
-		title.Position = UDim2.new(0.5, 0, 0.02, 0)
-		title.Size = UDim2.new(0.62, 0, 0.08, 0)
-		title.ClipsDescendants = true
+		title.Position = UDim2.new(0.5, 0, 0.012, 0)
+		title.AutomaticSize = Enum.AutomaticSize.None
+		title.Size = UDim2.new(0.84, 0, 0.16, 0)
+		title.ClipsDescendants = false
 		title.TextXAlignment = Enum.TextXAlignment.Center
 		title.TextYAlignment = Enum.TextYAlignment.Center
 		CasinoUiTheme.styleTitle(title)
@@ -492,8 +527,8 @@ function CasinoUiTheme.applyQueueTheme(ui: UiRefs)
 	ui.pages.BackgroundTransparency = 1
 	ui.closeBtn.Text = "X"
 	ui.closeBtn.AnchorPoint = Vector2.new(1, 0)
-	ui.closeBtn.Size = UDim2.new(0.065, 0, 0.06, 0)
-	ui.closeBtn.Position = UDim2.new(0.975, 0, 0.025, 0)
+	ui.closeBtn.Size = UDim2.new(0.12, 0, 0.12, 0)
+	ui.closeBtn.Position = UDim2.new(0.978, 0, 0.012, 0)
 	ui.closeBtn.ZIndex = 60
 	CasinoUiTheme.styleGhostBtn(ui.closeBtn)
 

@@ -6,13 +6,12 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local Signals = ReplicatedStorage:WaitForChild("Signals")
 local SetQueueState = Remotes:WaitForChild("SetQueueState")
 local GameStateChanged = Remotes:WaitForChild("GameStateChanged")
-local RequestOpenUI = Signals:WaitForChild("RequestOpenUI") :: BindableEvent
+local SpinStateChanged = Signals:WaitForChild("SpinStateChanged") :: BindableEvent
 
 local player = Players.LocalPlayer
 
 local BUTTON_4P = "4 Player Game"
-local BUTTON_CASINO = "Plinko"
-local CASINO_PAGE = "slots3"
+local BUTTON_CASINO = "Diamond Mines"
 local ARROW_TEMPLATE_PATH = { "Vfx", "GuideArrow" }
 local ARROW_NEAR_HIDE_DISTANCE = 4
 local SPAWN_INTERVAL = 0.12
@@ -34,7 +33,7 @@ type ArrowState = {
 local targetButtonName = BUTTON_4P
 local isQueued = false
 local finishedGameThisSession = false
-local casinoMenuOpenedThisSession = false
+local casinoPlayedThisSession = false
 local template: Model? = nil
 local folder: Folder? = nil
 local active: { ArrowState } = {}
@@ -134,7 +133,10 @@ local function clearAllArrows()
 end
 
 local function shouldShow(): boolean
-	if casinoMenuOpenedThisSession or isQueued then
+	if isQueued then
+		return false
+	end
+	if finishedGameThisSession and casinoPlayedThisSession then
 		return false
 	end
 	local chest = getPlayerChest()
@@ -273,11 +275,15 @@ GameStateChanged.OnClientEvent:Connect(function(phase)
 	end
 end)
 
-RequestOpenUI.Event:Connect(function(pageName)
-	if pageName == CASINO_PAGE then
-		casinoMenuOpenedThisSession = true
-		clearAllArrows()
+SpinStateChanged.Event:Connect(function(state)
+	if state ~= "stop" and state ~= "reward" then
+		return
 	end
+	if not finishedGameThisSession then
+		return
+	end
+	casinoPlayedThisSession = true
+	clearAllArrows()
 end)
 
 RunService.RenderStepped:Connect(function(dt)

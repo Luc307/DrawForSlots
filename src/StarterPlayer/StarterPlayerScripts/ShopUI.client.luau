@@ -17,24 +17,20 @@ local spinStateSignal = Signals:WaitForChild("SpinStateChanged") :: BindableEven
 local CLICK_MAX_DIST = 32
 
 -- Responsive layout: game panel fills most of screen
-local REF_VIEWPORT_SHORT = 720
-local MIN_UI_SCALE = 0.55
-local MAX_UI_SCALE = 1.0
-local MOBILE_BREAKPOINT = 700
 local CARD_ASPECT = 1.33
-local DESKTOP_CARD_WIDTH = 0.9
-local MOBILE_CARD_WIDTH = 0.94
-local DESKTOP_CARD_SIZE = UDim2.new(DESKTOP_CARD_WIDTH, 0, DESKTOP_CARD_WIDTH / CARD_ASPECT, 0)
-local MOBILE_CARD_SIZE = UDim2.new(MOBILE_CARD_WIDTH, 0, MOBILE_CARD_WIDTH / CARD_ASPECT, 0)
+local CARD_SCREEN = 0.75
+local CARD_MAX_WIDTH = 0.94
 local CARD_POS_SHOW = UDim2.new(0.5, 0, 0.5, 0)
 local CARD_POS_HIDE = UDim2.new(0.5, 0, 0.68, 0)
-local BADGE_SIZE = UDim2.new(0, 180, 0, 44)
 local CASINO_MAX_SIZE = Vector2.new(1500, 1000)
 local CASINO_MIN_SIZE = Vector2.new(360, 280)
+local COMPACT_CARD_W = 820
+local TINY_CARD_H = 400
+local BET_GAP = 8
 local GAME_AREA_TOP = 0.16
-local GAME_AREA_HEIGHT = 0.54
-local CONTROLS_TOP = 0.78
-local CONTROLS_HEIGHT = 0.16
+local GAME_AREA_HEIGHT = 0.50
+local CONTROLS_TOP = 0.74
+local CONTROLS_HEIGHT = 0.22
 
 -- ── Wait for pre-built ShopGui ────────────────────────────
 local sg       = pGui:WaitForChild("ShopGui")
@@ -390,7 +386,7 @@ do
 		makeBtn(betRow, "PlusBtn", "+", UDim2.new(0.22, 0, 1, 0), UDim2.new(0.78, 0, 0, 0))
 	end
 	if not left:FindFirstChild("StartBtn") then
-		makeBtn(left, "StartBtn", "START", UDim2.new(0.20, 0, 0.78, 0), UDim2.new(0.62, 0, 0.5, 0))
+		makeBtn(left, "StartBtn", "COLLECT", UDim2.new(0.20, 0, 0.78, 0), UDim2.new(0.62, 0, 0.5, 0))
 		local sb = left:FindFirstChild("StartBtn")
 		if sb and sb:IsA("GuiObject") then
 			sb.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -416,6 +412,7 @@ local isSpinning=false; local isSpinning2=false; local isP3=false
 local isWheelSpinning=false; local isMinesBusy=false; local minesRoundActive=false
 local menuOpen=false
 local plinkoLayoutHook: (() -> ())? = nil
+local slots2TapeHook: (() -> ())? = nil
 
 for _,obj in ipairs(card:GetDescendants()) do
 	if obj.Name == "TileSweep" then
@@ -660,7 +657,6 @@ local function setShopCoinVisible(open)
 end
 
 -- ── Responsive scale for mobile / different screens ───────
-local UserInputService = game:GetService('UserInputService')
 local camera = Workspace.CurrentCamera
 local uiScale = card:FindFirstChild('ResponsiveScale')
 if not uiScale then
@@ -684,45 +680,147 @@ local function getLocalSize(gui)
     return abs.X / s, abs.Y / s
 end
 
+local function nukeLayouts(gui)
+	if not gui then
+		return
+	end
+	for _, c in ipairs(gui:GetChildren()) do
+		if c:IsA("UIListLayout") or c:IsA("UIGridLayout") or c:IsA("UITableLayout")
+			or c:IsA("UIPadding") or c:IsA("UISizeConstraint") then
+			c:Destroy()
+		end
+	end
+end
+
+local function placeCtrl(obj, x, w, h)
+	if not obj or not obj:IsA("GuiObject") then
+		return
+	end
+	nukeLayouts(obj)
+	obj.AutomaticSize = Enum.AutomaticSize.None
+	obj.AnchorPoint = Vector2.new(0, 0.5)
+	obj.Position = UDim2.new(x, 0, 0.5, 0)
+	obj.Size = UDim2.new(w, 0, h, 0)
+	obj.ClipsDescendants = true
+	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+		fitText(obj, THEME.BTN_MIN, THEME.BTN_MAX)
+	end
+end
+
+local function layoutBetRow(row, showLabel)
+	if not row or not row:IsA("GuiObject") then
+		return
+	end
+	nukeLayouts(row)
+	row.AutomaticSize = Enum.AutomaticSize.None
+	row.ClipsDescendants = true
+	local label = row:FindFirstChild("BetLabel")
+	if not label then
+		for _, c in ipairs(row:GetChildren()) do
+			if c:IsA("TextLabel") and c.Name ~= "BetInput" then
+				label = c
+				break
+			end
+		end
+	end
+	local minus = row:FindFirstChild("MinusBtn")
+	local input = row:FindFirstChild("BetInput")
+	local plus = row:FindFirstChild("PlusBtn")
+	local maxB = row:FindFirstChild("MaxBtn")
+	local items = {}
+	if showLabel and label then
+		label.Visible = true
+		table.insert(items, { gui = label, weight = 0.9 })
+	elseif label then
+		label.Visible = false
+	end
+	if minus then
+		table.insert(items, { gui = minus, weight = 1 })
+	end
+	if input then
+		table.insert(items, { gui = input, weight = 2.2 })
+	end
+	if plus then
+		table.insert(items, { gui = plus, weight = 1 })
+	end
+	if maxB then
+		table.insert(items, { gui = maxB, weight = 1.6 })
+	end
+	local rw = row.AbsoluteSize.X
+	local rh = row.AbsoluteSize.Y
+	if rw >= 8 and rh >= 8 and #items > 0 then
+		local inner = rw - BET_GAP * math.max(#items - 1, 0)
+		local tw = 0
+		for _, it in ipairs(items) do
+			tw += it.weight
+		end
+		local x = 0
+		for _, it in ipairs(items) do
+			local bw = math.max(10, math.floor(inner * (it.weight / tw)))
+			nukeLayouts(it.gui)
+			it.gui.AutomaticSize = Enum.AutomaticSize.None
+			it.gui.AnchorPoint = Vector2.new(0, 0.5)
+			it.gui.Position = UDim2.fromOffset(x, math.floor(rh * 0.5))
+			it.gui.Size = UDim2.fromOffset(bw, math.max(10, math.floor(rh * 0.85)))
+			it.gui.ClipsDescendants = true
+			if it.gui:IsA("TextLabel") or it.gui:IsA("TextButton") or it.gui:IsA("TextBox") then
+				fitText(it.gui, THEME.BTN_MIN, THEME.BTN_MAX)
+			end
+			x += bw + BET_GAP
+		end
+		return
+	end
+	local x = 0
+	if showLabel and label then
+		placeCtrl(label, 0, 0.14, 0.85)
+		x = 0.15
+	end
+	local span = 1 - x
+	if maxB then
+		placeCtrl(minus, x + span * 0.00, span * 0.16, 0.85)
+		placeCtrl(input, x + span * 0.18, span * 0.32, 0.85)
+		placeCtrl(plus, x + span * 0.52, span * 0.16, 0.85)
+		placeCtrl(maxB, x + span * 0.70, span * 0.30, 0.85)
+	else
+		placeCtrl(minus, x + span * 0.00, span * 0.22, 0.85)
+		placeCtrl(input, x + span * 0.26, span * 0.48, 0.85)
+		placeCtrl(plus, x + span * 0.78, span * 0.22, 0.85)
+	end
+end
+
 local function applyResponsiveLayout()
     local cam = Workspace.CurrentCamera
     if not cam then return end
     local vp = cam.ViewportSize
     if vp.X < 1 or vp.Y < 1 then return end
 
-    local shortest = math.min(vp.X, vp.Y)
-    local scale = math.clamp(shortest / REF_VIEWPORT_SHORT, MIN_UI_SCALE, MAX_UI_SCALE)
-    local isMobile = vp.X <= MOBILE_BREAKPOINT or (UserInputService.TouchEnabled and vp.X < 900)
-
-    uiScale.Scale = scale
-    card.Size = isMobile and MOBILE_CARD_SIZE or DESKTOP_CARD_SIZE
+    uiScale.Scale = 1
+    local maxW = math.min(CASINO_MAX_SIZE.X, math.floor(vp.X * CARD_MAX_WIDTH))
+    local maxH = math.min(CASINO_MAX_SIZE.Y, math.floor(vp.Y * CARD_SCREEN))
+    local h = maxH
+    local w = math.floor(h * CARD_ASPECT)
+    if w > maxW then
+        w = maxW
+        h = math.floor(w / CARD_ASPECT)
+    end
+    card.Size = UDim2.fromOffset(w, h)
     card.AnchorPoint = Vector2.new(0.5, 0.5)
     card.Position = if menuOpen then CARD_POS_SHOW else card.Position
+    local compact = w < COMPACT_CARD_W
+    local tiny = h < TINY_CARD_H
 
     local aspectLock = card:FindFirstChild('AspectLock')
-    if not aspectLock then
-        aspectLock = Instance.new('UIAspectRatioConstraint')
-        aspectLock.Name = 'AspectLock'
-        aspectLock.Parent = card
+    if aspectLock then
+        aspectLock:Destroy()
     end
-    aspectLock.AspectRatio = CARD_ASPECT
-    aspectLock.DominantAxis = Enum.DominantAxis.Width
 
     local sizeConstraint = card:FindFirstChildOfClass('UISizeConstraint')
     if not sizeConstraint then
         sizeConstraint = Instance.new('UISizeConstraint')
         sizeConstraint.Parent = card
     end
-    sizeConstraint.MaxSize = CASINO_MAX_SIZE
     sizeConstraint.MinSize = CASINO_MIN_SIZE
-
-    -- Card covers about 75% of viewport height, leaving black stage around it.
-    local maxH = math.floor(vp.Y * 0.75)
-    local maxW = math.floor(vp.X * 0.94)
-    sizeConstraint.MaxSize = Vector2.new(
-        math.min(CASINO_MAX_SIZE.X, maxW),
-        math.min(CASINO_MAX_SIZE.Y, maxH)
-    )
+    sizeConstraint.MaxSize = Vector2.new(w, h)
 
     local shadow = CasinoUiTheme.ensureCardShadow(card)
     shadow.Visible = menuOpen and sg.Enabled
@@ -754,7 +852,7 @@ local function applyResponsiveLayout()
                 end
                 local icon = tile:FindFirstChild('PreviewIcon', true)
                 if icon and icon:IsA('TextLabel') then
-                    fitText(icon, 22, 48)
+                    fitText(icon, THEME.TEXT_MIN, THEME.TEXT_MAX)
                 end
                 idx += 1
             end
@@ -763,7 +861,7 @@ local function applyResponsiveLayout()
     local shopTitle = tilesPage:FindFirstChild('ShopTitle')
     if shopTitle and shopTitle:IsA('TextLabel') then
         styleTitle(shopTitle)
-        shopTitle.Size = UDim2.new(0.8, 0, TITLE_H, 0)
+        shopTitle.Size = UDim2.new(0.8, 0, 0.12, 0)
         shopTitle.Position = UDim2.new(0.5, 0, 0.06, 0)
         shopTitle.AnchorPoint = Vector2.new(0.5, 0)
     end
@@ -787,29 +885,27 @@ local function applyResponsiveLayout()
             local clip = strip:FindFirstChild('StripClip')
             if clip then clip.ClipsDescendants = true end
         end
+        local y = S1_CTRL_TOP + CTRL_H * 0.5
         local bet = slotsPage:FindFirstChild('BetRow')
         if bet then
-            bet.Size = UDim2.new(0.42, 0, CTRL_H * 0.85, 0)
-            bet.Position = UDim2.new(PAD + 0.02, 0, S1_CTRL_TOP + CTRL_H * 0.5, 0)
+            bet.Size = UDim2.new(if compact then 0.52 else 0.44, 0, CTRL_H * 0.85, 0)
+            bet.Position = UDim2.new(PAD, 0, y, 0)
             bet.AnchorPoint = Vector2.new(0, 0.5)
-            bet.ClipsDescendants = true
-            for _, child in ipairs(bet:GetChildren()) do
-                if child:IsA('TextLabel') or child:IsA('TextButton') or child:IsA('TextBox') then
-                    fitText(child, THEME.TEXT_MIN, THEME.TEXT_MAX)
-                end
-            end
+            layoutBetRow(bet, not compact)
         end
         local spin = slotsPage:FindFirstChild('SpinBtn')
         if spin then
-            spin.Size = UDim2.new(0.19, 0, CTRL_H * 0.85, 0)
-            spin.Position = UDim2.new(0.52, 0, S1_CTRL_TOP + CTRL_H * 0.5, 0)
-            spin.AnchorPoint = Vector2.new(0.5, 0.5)
-            fitText(spin, 22, 44)
+            spin.Size = UDim2.new(if compact then 0.16 else 0.17, 0, CTRL_H * 0.85, 0)
+            spin.Position = UDim2.new(if compact then PAD + 0.54 else PAD + 0.46, 0, y, 0)
+            spin.AnchorPoint = Vector2.new(0, 0.5)
+            spin.ClipsDescendants = true
+            nukeLayouts(spin)
+            fitText(spin, THEME.BTN_MIN, THEME.BTN_MAX)
         end
         local result = slotsPage:FindFirstChild('ResultBg')
         if result then
-            result.Size = UDim2.new(0.28, 0, CTRL_H * 0.85, 0)
-            result.Position = UDim2.new(1 - PAD - 0.02, 0, S1_CTRL_TOP + CTRL_H * 0.5, 0)
+            result.Size = UDim2.new(if compact then 0.22 else 0.26, 0, CTRL_H * 0.85, 0)
+            result.Position = UDim2.new(1 - PAD, 0, y, 0)
             result.AnchorPoint = Vector2.new(1, 0.5)
             local oldSingle = result:FindFirstChild('ResultLbl')
             if oldSingle and not result:FindFirstChild('CoinsLbl') then
@@ -829,9 +925,30 @@ local function applyResponsiveLayout()
             reel.AnchorPoint = Vector2.new(0.5, 0)
             local inner = reel:FindFirstChild('ReelInner')
             if inner then
-                for _, child in ipairs(inner:GetChildren()) do
-                    if child.Name:match('^Reel%d+$') then
+                local top = inner:FindFirstChild('TopStrip')
+                local topH = if tiny then 16 else 28
+                if top and top:IsA('GuiObject') then
+                    top.Size = UDim2.new(1, 0, 0, topH)
+                    top.Position = UDim2.new(0, 0, 0, 0)
+                end
+                local winBand = inner:FindFirstChild('WinBand')
+                if winBand and winBand:IsA('GuiObject') then
+                    winBand.AnchorPoint = Vector2.new(0, 0.5)
+                    winBand.Position = UDim2.new(0, 0, 0.5, math.floor(topH / 2))
+                    winBand.Size = UDim2.new(1, 0, 0, if tiny then 3 else 2)
+                    winBand.ZIndex = 8
+                end
+                for ri = 1, 5 do
+                    local child = inner:FindFirstChild('Reel' .. ri)
+                    if child and child:IsA('GuiObject') then
                         child.ClipsDescendants = true
+                        child.Size = UDim2.new(0.1968, 0, 1, -topH)
+                        child.Position = UDim2.new((ri - 1) * 0.2008, 0, 0, topH)
+                    end
+                    local num = inner:FindFirstChild('NumCircle' .. ri)
+                    if num and num:IsA('GuiObject') then
+                        local ns = if tiny then 16 else 22
+                        num.Size = UDim2.fromOffset(ns, ns)
                     end
                 end
             end
@@ -843,50 +960,14 @@ local function applyResponsiveLayout()
             bar.Size = UDim2.new(1 - PAD * 2, 0, CTRL_H, 0)
             local betSec = bar:FindFirstChild('BetSection')
             if betSec then
-                local list = betSec:FindFirstChildOfClass('UIListLayout')
-                if list then list:Destroy() end
-                betSec.Size = UDim2.new(0.38, 0, 0.85, 0)
-                betSec.Position = UDim2.new(0.02, 0, 0.5, 0)
+                betSec.Size = UDim2.new(if compact then 0.56 else 0.40, 0, 0.85, 0)
+                betSec.Position = UDim2.new(0.00, 0, 0.5, 0)
                 betSec.AnchorPoint = Vector2.new(0, 0.5)
-                local betLabel = betSec:FindFirstChild('BetLabel')
-                if betLabel then
-                    betLabel.Size = UDim2.new(0.2, 0, 1, 0)
-                    betLabel.Position = UDim2.new(0, 0, 0.5, 0)
-                    betLabel.AnchorPoint = Vector2.new(0, 0.5)
-                    fitText(betLabel, THEME.TEXT_MIN, THEME.TEXT_MAX)
-                end
-                local minus = betSec:FindFirstChild('MinusBtn')
-                if minus then
-                    minus.Size = UDim2.new(0.14, 0, 0.75, 0)
-                    minus.Position = UDim2.new(0.22, 0, 0.5, 0)
-                    minus.AnchorPoint = Vector2.new(0, 0.5)
-                    fitText(minus, THEME.BTN_MIN, THEME.BTN_MAX)
-                end
-                local input = betSec:FindFirstChild('BetInput')
-                if input then
-                    input.Size = UDim2.new(0.26, 0, 0.75, 0)
-                    input.Position = UDim2.new(0.37, 0, 0.5, 0)
-                    input.AnchorPoint = Vector2.new(0, 0.5)
-                    fitText(input, THEME.TEXT_MIN, THEME.TEXT_MAX)
-                end
-                local plus = betSec:FindFirstChild('PlusBtn')
-                if plus then
-                    plus.Size = UDim2.new(0.14, 0, 0.75, 0)
-                    plus.Position = UDim2.new(0.64, 0, 0.5, 0)
-                    plus.AnchorPoint = Vector2.new(0, 0.5)
-                    fitText(plus, THEME.BTN_MIN, THEME.BTN_MAX)
-                end
-                local maxB = betSec:FindFirstChild('MaxBtn')
-                if maxB then
-                    maxB.Size = UDim2.new(0.18, 0, 0.75, 0)
-                    maxB.Position = UDim2.new(0.79, 0, 0.5, 0)
-                    maxB.AnchorPoint = Vector2.new(0, 0.5)
-                    fitText(maxB, THEME.BTN_MIN, THEME.BTN_MAX)
-                end
+                layoutBetRow(betSec, not compact)
             end
             local winSec = bar:FindFirstChild('WinSection')
             if winSec then
-                winSec.Size = UDim2.new(0.24, 0, 0.85, 0)
+                winSec.Size = UDim2.new(if compact then 0.20 else 0.24, 0, 0.85, 0)
                 winSec.Position = UDim2.new(0.98, 0, 0.5, 0)
                 winSec.AnchorPoint = Vector2.new(1, 0.5)
                 local res2 = winSec:FindFirstChild('ResultBg')
@@ -902,10 +983,12 @@ local function applyResponsiveLayout()
             end
             local spin2 = bar:FindFirstChild('SpinBtn')
             if spin2 then
-                spin2.Size = UDim2.new(0.22, 0, 0.85, 0)
-                spin2.Position = UDim2.new(0.55, 0, 0.5, 0)
-                spin2.AnchorPoint = Vector2.new(0.5, 0.5)
-                fitText(spin2, 22, 44)
+                spin2.Size = UDim2.new(if compact then 0.16 else 0.20, 0, 0.85, 0)
+                spin2.Position = UDim2.new(if compact then 0.58 else 0.42, 0, 0.5, 0)
+                spin2.AnchorPoint = Vector2.new(0, 0.5)
+                spin2.ClipsDescendants = true
+                nukeLayouts(spin2)
+                fitText(spin2, THEME.BTN_MIN, THEME.BTN_MAX)
             end
         end
     end
@@ -938,26 +1021,42 @@ local function applyResponsiveLayout()
             local bet = left:FindFirstChild('BetBox')
             if bet then
                 bet.Position = UDim2.new(0.02, 0, 0.5, 0)
-                bet.Size = UDim2.new(0.74, 0, 0.9, 0)
+                bet.Size = UDim2.new(if tiny then 0.78 else 0.74, 0, 0.9, 0)
                 bet.AnchorPoint = Vector2.new(0, 0.5)
                 for _, row in ipairs(bet:GetChildren()) do
                     if row.Name == 'BallPriceRow' or row.Name == 'NumBallsRow' then
-                        row.Size = UDim2.new(0.28, 0, 0.9, 0)
-                        row.AnchorPoint = Vector2.new(0, 0)
-                        row.Position = row.Name == 'BallPriceRow' and UDim2.new(0.02, 0, 0.05, 0) or UDim2.new(0.32, 0, 0.05, 0)
+                        nukeLayouts(row)
+                        row.Size = UDim2.new(if tiny then 0.28 else 0.28, 0, 0.9, 0)
+                        row.AnchorPoint = Vector2.new(0, 0.5)
+                        row.Position = row.Name == 'BallPriceRow' and UDim2.new(0.00, 0, 0.5, 0) or UDim2.new(if tiny then 0.30 else 0.32, 0, 0.5, 0)
                         local lbl = row:FindFirstChild('Label', true)
-                        if lbl and lbl:IsA('TextLabel') then
-                            lbl.Size = UDim2.new(1, 0, 0.38, 0)
-                            lbl.Position = UDim2.new(0.5, 0, 0, 0)
-                            lbl.AnchorPoint = Vector2.new(0.5, 0)
-                            fitText(lbl, THEME.TEXT_MIN, THEME.TEXT_MAX)
-                        end
                         local controls = row:FindFirstChild('Controls')
                         local val = controls and controls:FindFirstChild('ValueLbl')
+                        if tiny then
+                            if lbl and lbl:IsA('GuiObject') then
+                                lbl.Visible = false
+                            end
+                            if controls then
+                                nukeLayouts(controls)
+                                controls.Size = UDim2.fromScale(1, 0.9)
+                                controls.Position = UDim2.new(0.5, 0, 0.5, 0)
+                                controls.AnchorPoint = Vector2.new(0.5, 0.5)
+                            end
+                        else
+                            if lbl and lbl:IsA('TextLabel') then
+                                lbl.Visible = true
+                                lbl.Size = UDim2.new(1, 0, 0.38, 0)
+                                lbl.Position = UDim2.new(0.5, 0, 0, 0)
+                                lbl.AnchorPoint = Vector2.new(0.5, 0)
+                                fitText(lbl, THEME.TEXT_MIN, THEME.TEXT_MAX)
+                            end
+                            if controls then
+                                controls.Size = UDim2.new(1, 0, 0.52, 0)
+                                controls.Position = UDim2.new(0.5, 0, 1, 0)
+                                controls.AnchorPoint = Vector2.new(0.5, 1)
+                            end
+                        end
                         if controls then
-                            controls.Size = UDim2.new(1, 0, 0.52, 0)
-                            controls.Position = UDim2.new(0.5, 0, 1, 0)
-                            controls.AnchorPoint = Vector2.new(0.5, 1)
                             for _, btn in ipairs(controls:GetChildren()) do
                                 if btn:IsA('TextButton') then
                                     btn.Size = UDim2.new(0.24, 0, 1, 0)
@@ -967,6 +1066,7 @@ local function applyResponsiveLayout()
                                 end
                             end
                             if val then
+                                val.Visible = true
                                 val.Size = UDim2.new(0.48, 0, 1, 0)
                                 val.Position = UDim2.new(0.5, 0, 0.5, 0)
                                 val.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -977,10 +1077,10 @@ local function applyResponsiveLayout()
                 end
                 local betBtn = bet:FindFirstChild('BetBtn')
                 if betBtn then
-                    betBtn.AnchorPoint = Vector2.new(1, 0.5)
-                    betBtn.Position = UDim2.new(0.97, 0, 0.5, 0)
-                    betBtn.Size = UDim2.new(0.18, 0, 0.78, 0)
-                    fitText(betBtn, 22, 44)
+                    betBtn.AnchorPoint = Vector2.new(if tiny then 0 else 1, 0.5)
+                    betBtn.Position = UDim2.new(if tiny then 0.78 else 0.97, 0, 0.5, 0)
+                    betBtn.Size = UDim2.new(if tiny then 0.20 else 0.18, 0, 0.78, 0)
+                    fitText(betBtn, THEME.BTN_MIN, THEME.BTN_MAX)
                 end
                 local separator = bet:FindFirstChild('Separator')
                 if separator and separator:IsA('GuiObject') then
@@ -988,24 +1088,36 @@ local function applyResponsiveLayout()
                 end
                 local totalRow = bet:FindFirstChild('TotalBetRow')
                 if totalRow and totalRow:IsA('GuiObject') then
-                    totalRow.Position = UDim2.new(0.61, 0, 0.08, 0)
-                    totalRow.Size = UDim2.new(0.16, 0, 0.32, 0)
-                    totalRow.AnchorPoint = Vector2.new(0, 0)
-                    local label = totalRow:FindFirstChild('Label')
-                    if label and label:IsA('TextLabel') then
-                        label.Size = UDim2.fromScale(1, 1)
-                        label.Position = UDim2.fromScale(0.5, 0.5)
-                        label.AnchorPoint = Vector2.new(0.5, 0.5)
-                        fitText(label, THEME.TEXT_MIN, THEME.TEXT_MAX)
+                    if tiny then
+                        totalRow.Visible = false
+                    else
+                        totalRow.Visible = true
+                        totalRow.Position = UDim2.new(0.61, 0, 0.08, 0)
+                        totalRow.Size = UDim2.new(0.16, 0, 0.32, 0)
+                        totalRow.AnchorPoint = Vector2.new(0, 0)
+                        local label = totalRow:FindFirstChild('Label')
+                        if label and label:IsA('TextLabel') then
+                            label.Size = UDim2.fromScale(1, 1)
+                            label.Position = UDim2.fromScale(0.5, 0.5)
+                            label.AnchorPoint = Vector2.new(0.5, 0.5)
+                            fitText(label, THEME.TEXT_MIN, THEME.TEXT_MAX)
+                        end
                     end
                 end
                 local totalLbl = bet:FindFirstChild('TotalLbl', true)
                 if totalLbl then
                     local totalBox = totalLbl.Parent
                     if totalBox and totalBox:IsA('GuiObject') then
-                        totalBox.Position = UDim2.new(0.61, 0, 0.94, 0)
-                        totalBox.Size = UDim2.new(0.16, 0, 0.48, 0)
-                        totalBox.AnchorPoint = Vector2.new(0, 1)
+                        if tiny then
+                            totalBox.Visible = true
+                            totalBox.Position = UDim2.new(0.60, 0, 0.5, 0)
+                            totalBox.Size = UDim2.new(0.16, 0, 0.85, 0)
+                            totalBox.AnchorPoint = Vector2.new(0, 0.5)
+                        else
+                            totalBox.Position = UDim2.new(0.61, 0, 0.94, 0)
+                            totalBox.Size = UDim2.new(0.16, 0, 0.48, 0)
+                            totalBox.AnchorPoint = Vector2.new(0, 1)
+                        end
                     end
                     fitText(totalLbl, THEME.TEXT_MIN, THEME.TEXT_MAX)
                 end
@@ -1071,58 +1183,35 @@ local function applyResponsiveLayout()
         local ctrlY = CTRL_TOP + CTRL_H * 0.5
         local bet = wheelPage:FindFirstChild("BetRow")
         if bet and bet:IsA("GuiObject") then
-            bet.Size = UDim2.new(0.32, 0, CTRL_H * 0.85, 0)
-            bet.Position = UDim2.new(PAD, 0, ctrlY, 0)
+            bet.Size = UDim2.new(if compact then 0.40 else 0.30, 0, CTRL_H * 0.85, 0)
+            bet.Position = UDim2.new(if compact then 0.02 else PAD, 0, ctrlY, 0)
             bet.AnchorPoint = Vector2.new(0, 0.5)
             bet.ZIndex = 30
-            local minus = bet:FindFirstChild("MinusBtn")
-            local input = bet:FindFirstChild("BetInput")
-            local plus = bet:FindFirstChild("PlusBtn")
-            local maxB = bet:FindFirstChild("MaxBtn")
-            if minus then
-                minus.Size = UDim2.new(0.18, 0, 0.85, 0)
-                minus.Position = UDim2.new(0, 0, 0.5, 0)
-                minus.AnchorPoint = Vector2.new(0, 0.5)
-                fitText(minus, THEME.BTN_MIN, THEME.BTN_MAX)
-            end
-            if input then
-                input.Size = UDim2.new(0.34, 0, 0.85, 0)
-                input.Position = UDim2.new(0.2, 0, 0.5, 0)
-                input.AnchorPoint = Vector2.new(0, 0.5)
-                fitText(input, THEME.TEXT_MIN, THEME.TEXT_MAX)
-            end
-            if plus then
-                plus.Size = UDim2.new(0.18, 0, 0.85, 0)
-                plus.Position = UDim2.new(0.56, 0, 0.5, 0)
-                plus.AnchorPoint = Vector2.new(0, 0.5)
-                fitText(plus, THEME.BTN_MIN, THEME.BTN_MAX)
-            end
-            if maxB then
-                maxB.Size = UDim2.new(0.24, 0, 0.85, 0)
-                maxB.Position = UDim2.new(0.76, 0, 0.5, 0)
-                maxB.AnchorPoint = Vector2.new(0, 0.5)
-                fitText(maxB, THEME.BTN_MIN, THEME.BTN_MAX)
-            end
+            layoutBetRow(bet, false)
         end
         local risk = wheelPage:FindFirstChild("RiskBtn")
         if risk and risk:IsA("GuiObject") then
-            risk.Size = UDim2.new(0.13, 0, CTRL_H * 0.85, 0)
-            risk.Position = UDim2.new(0.42, 0, ctrlY, 0)
+            risk.Size = UDim2.new(if compact then 0.22 else 0.16, 0, CTRL_H * 0.85, 0)
+            risk.Position = UDim2.new(if compact then 0.43 else PAD + 0.32, 0, ctrlY, 0)
             risk.AnchorPoint = Vector2.new(0, 0.5)
             risk.ZIndex = 30
+            risk.ClipsDescendants = true
+            nukeLayouts(risk)
             fitText(risk, THEME.BTN_MIN, THEME.BTN_MAX)
         end
         local spin = wheelPage:FindFirstChild("SpinBtn")
         if spin and spin:IsA("GuiObject") then
-            spin.Size = UDim2.new(0.15, 0, CTRL_H * 0.85, 0)
-            spin.Position = UDim2.new(0.56, 0, ctrlY, 0)
+            spin.Size = UDim2.new(if compact then 0.16 else 0.16, 0, CTRL_H * 0.85, 0)
+            spin.Position = UDim2.new(if compact then 0.66 else PAD + 0.50, 0, ctrlY, 0)
             spin.AnchorPoint = Vector2.new(0, 0.5)
             spin.ZIndex = 30
-            fitText(spin, 22, 44)
+            spin.ClipsDescendants = true
+            nukeLayouts(spin)
+            fitText(spin, THEME.BTN_MIN, THEME.BTN_MAX)
         end
         local result = wheelPage:FindFirstChild("ResultBg")
         if result and result:IsA("GuiObject") then
-            result.Size = UDim2.new(0.22, 0, CTRL_H * 0.85, 0)
+            result.Size = UDim2.new(if compact then 0.14 else 0.22, 0, CTRL_H * 0.85, 0)
             result.Position = UDim2.new(1 - PAD, 0, ctrlY, 0)
             result.AnchorPoint = Vector2.new(1, 0.5)
             result.ZIndex = 30
@@ -1159,14 +1248,14 @@ local function applyResponsiveLayout()
             left.ZIndex = 30
             local sizeRow = left:FindFirstChild("SizeRow")
             if sizeRow and sizeRow:IsA("GuiObject") then
-                sizeRow.Size = UDim2.new(0.20, 0, 0.85, 0)
+                sizeRow.Size = UDim2.new(0.28, 0, 0.85, 0)
                 sizeRow.Position = UDim2.new(0.00, 0, 0.5, 0)
                 sizeRow.AnchorPoint = Vector2.new(0, 0.5)
                 for _, btn in ipairs(sizeRow:GetChildren()) do
                     if btn:IsA("TextButton") then
                         local idx = if btn.Name == "Size3" then 0 elseif btn.Name == "Size4" then 1 else 2
-                        btn.Size = UDim2.new(0.3, 0, 1, 0)
-                        btn.Position = UDim2.new(idx * 0.35, 0, 0.5, 0)
+                        btn.Size = UDim2.new(0.31, 0, 1, 0)
+                        btn.Position = UDim2.new(idx * 0.345, 0, 0.5, 0)
                         btn.AnchorPoint = Vector2.new(0, 0.5)
                         fitText(btn, THEME.BTN_MIN, THEME.BTN_MAX)
                     end
@@ -1174,37 +1263,21 @@ local function applyResponsiveLayout()
             end
             local bet = left:FindFirstChild("BetRow")
             if bet and bet:IsA("GuiObject") then
-                bet.Size = UDim2.new(0.24, 0, 0.85, 0)
-                bet.Position = UDim2.new(0.22, 0, 0.5, 0)
+                bet.Size = UDim2.new(0.28, 0, 0.85, 0)
+                bet.Position = UDim2.new(0.30, 0, 0.5, 0)
                 bet.AnchorPoint = Vector2.new(0, 0.5)
-                local minus = bet:FindFirstChild("MinusBtn")
-                local input = bet:FindFirstChild("BetInput")
-                local plus = bet:FindFirstChild("PlusBtn")
-                if minus then
-                    minus.Size = UDim2.new(0.22, 0, 0.85, 0)
-                    minus.Position = UDim2.new(0, 0, 0.5, 0)
-                    minus.AnchorPoint = Vector2.new(0, 0.5)
-                    fitText(minus, THEME.BTN_MIN, THEME.BTN_MAX)
-                end
-                if input then
-                    input.Size = UDim2.new(0.5, 0, 0.85, 0)
-                    input.Position = UDim2.new(0.25, 0, 0.5, 0)
-                    input.AnchorPoint = Vector2.new(0, 0.5)
-                    fitText(input, THEME.TEXT_MIN, THEME.TEXT_MAX)
-                end
-                if plus then
-                    plus.Size = UDim2.new(0.22, 0, 0.85, 0)
-                    plus.Position = UDim2.new(0.78, 0, 0.5, 0)
-                    plus.AnchorPoint = Vector2.new(0, 0.5)
-                    fitText(plus, THEME.BTN_MIN, THEME.BTN_MAX)
-                end
+                layoutBetRow(bet, false)
             end
 			local startBtn = left:FindFirstChild("StartBtn")
 			if startBtn and startBtn:IsA("GuiObject") then
-				startBtn.Size = UDim2.new(0.18, 0, 0.85, 0)
-				startBtn.Position = UDim2.new(0.48, 0, 0.5, 0)
+				startBtn.Size = UDim2.new(0.22, 0, 0.85, 0)
+				startBtn.Position = UDim2.new(0.60, 0, 0.5, 0)
 				startBtn.AnchorPoint = Vector2.new(0, 0.5)
-				fitText(startBtn, 18, 36)
+				fitText(startBtn, THEME.BTN_MIN, THEME.BTN_MAX)
+				startBtn.TextTruncate = Enum.TextTruncate.None
+				if startBtn:IsA("TextButton") then
+					startBtn.TextWrapped = false
+				end
 			end
 			local staleCollect = left:FindFirstChild("CollectBtn")
 			if staleCollect then
@@ -1218,7 +1291,7 @@ local function applyResponsiveLayout()
 				win.Parent = left
 			end
 			if win and win:IsA("GuiObject") then
-				win.Size = UDim2.new(0.28, 0, 0.85, 0)
+				win.Size = UDim2.new(0.16, 0, 0.85, 0)
 				win.Position = UDim2.new(1, 0, 0.5, 0)
 				win.AnchorPoint = Vector2.new(1, 0.5)
 				win.ZIndex = 31
@@ -1237,9 +1310,14 @@ local function applyResponsiveLayout()
 	end
 
 	coinBadge.AnchorPoint = Vector2.new(1, 0)
-    coinBadge.Position = UDim2.new(1, -math.floor(14 * scale), 0, math.floor(12 * scale))
-    coinBadge.Size = UDim2.new(0, math.floor(BADGE_SIZE.X.Offset * math.max(scale, 0.8)), 0, math.floor(BADGE_SIZE.Y.Offset * math.max(scale, 0.8)))
+    coinBadge.Position = UDim2.new(1, -math.max(12, math.floor(vp.X * 0.012)), 0, math.max(10, math.floor(vp.Y * 0.015)))
+    coinBadge.Size = UDim2.fromOffset(
+        math.clamp(math.floor(vp.X * 0.2), 160, 340),
+        math.clamp(math.floor(vp.Y * 0.07), 52, 92)
+    )
     if innerCoinLbl then
+        innerCoinLbl.Size = UDim2.fromScale(1, 1)
+        innerCoinLbl.AutomaticSize = Enum.AutomaticSize.None
         fitText(innerCoinLbl, THEME.TEXT_MIN, THEME.TEXT_MAX)
         innerCoinLbl.Visible = coinBadge.Visible
     end
@@ -1247,8 +1325,32 @@ local function applyResponsiveLayout()
     if slots3Page.Visible and plinkoLayoutHook then
         task.defer(plinkoLayoutHook)
     end
+    if slots2Page.Visible and slots2TapeHook then
+        task.defer(slots2TapeHook)
+    end
 
     applyQueueTheme()
+    task.defer(function()
+        local compactNow = w < COMPACT_CARD_W
+        local b1 = slotsPage:FindFirstChild("BetRow")
+        if b1 then
+            layoutBetRow(b1, not compactNow)
+        end
+        local bar2 = slots2Page:FindFirstChild("BottomBar")
+        local b2 = bar2 and bar2:FindFirstChild("BetSection")
+        if b2 then
+            layoutBetRow(b2, not compactNow)
+        end
+        local b3 = wheelPage and wheelPage:FindFirstChild("BetRow")
+        if b3 then
+            layoutBetRow(b3, false)
+        end
+        local minesLeft = minesPage and minesPage:FindFirstChild("LeftPanel")
+        local b4 = minesLeft and minesLeft:FindFirstChild("BetRow")
+        if b4 then
+            layoutBetRow(b4, false)
+        end
+    end)
 end
 
 task.spawn(function()
@@ -1453,9 +1555,7 @@ do
     }) do
         if btn and btn:IsA("GuiButton") then
             if btn:IsA("TextButton") then
-                btn.TextScaled = true
-                btn.TextSize = 32
-                fitText(btn, 24, 48)
+                fitText(btn, THEME.BTN_MIN, THEME.BTN_MAX)
             end
             table.insert(primaryBtns, btn)
         end
@@ -1526,10 +1626,6 @@ do
         if not anyGameBusy() then
             for _, btn in ipairs(primaryBtns) do
                 if btn.Parent and btn.Visible then
-                    if btn:IsA("TextButton") then
-                        btn.TextScaled = true
-                        btn.TextSize = 32
-                    end
                     local us = btn:FindFirstChild("IdlePulse")
                     if not us then
                         us = Instance.new("UIScale")
@@ -1883,7 +1979,8 @@ for ri=1,NREELS do
 end
 local function buildTape(ri,centerSym)
     local tape=tapes[ri];local clip=reelClips[ri];if not tape or not clip then return end
-    local clipH=math.max(clip.AbsoluteSize.Y,240); local symH=math.floor(clipH/NROWS)
+    local clipH = math.max(clip.AbsoluteSize.Y, 1)
+    local symH = math.max(8, math.floor(clipH / NROWS))
     tape.Size=UDim2.new(1,0,0,symH*REEL_LEN)
     for _,c in ipairs(tape:GetChildren()) do c:Destroy() end; resultCells[ri]=nil
     local centerSData=symByEmoji(centerSym)
@@ -1901,6 +1998,13 @@ for ri=1,NREELS do buildTape(ri,SYMS2[((ri-1)%#SYMS2)+1].e) end
 
 local function refreshSlots2Layout()
     applyResponsiveLayout()
+    for ri = 1, NREELS do
+        local lbl = resultCells[ri] and resultCells[ri]:FindFirstChildOfClass('TextLabel')
+        local sym = lbl and lbl.Text or SYMS2[((ri - 1) % #SYMS2) + 1].e
+        buildTape(ri, sym)
+    end
+end
+slots2TapeHook = function()
     for ri = 1, NREELS do
         local lbl = resultCells[ri] and resultCells[ri]:FindFirstChildOfClass('TextLabel')
         local sym = lbl and lbl.Text or SYMS2[((ri - 1) % #SYMS2) + 1].e
@@ -1933,7 +2037,8 @@ local function highlightResults(matchSym)
 end
 local function animateReel(ri,startDelay,onDone)
     local tape=tapes[ri];local clip=reelClips[ri];if not tape or not clip then if onDone then task.delay(startDelay+2,onDone) end;return end
-    local clipH=math.max(clip.AbsoluteSize.Y,240);local symH=math.floor(clipH/NROWS)
+    local clipH = math.max(clip.AbsoluteSize.Y, 1)
+    local symH = math.max(8, math.floor(clipH / NROWS))
     local TARGET_Y=clipH/2-symH/2-RES_POS*symH
     tape.Position=UDim2.new(0,0,0,0)
     task.delay(startDelay,function()
@@ -2136,9 +2241,12 @@ local function bldBoard3()
         bg.BackgroundColor3=mCol3(f);bg.BorderSizePixel=0;bg.ZIndex=5;bg.Parent=mb3
         local mc=Instance.new('UICorner');mc.CornerRadius=UDim.new(0,6);mc.Parent=bg
         local lbl=Instance.new('TextLabel');lbl.Size=UDim2.new(1,-4,1,-2);lbl.Position=UDim2.new(0.5,0,0.5,0);lbl.AnchorPoint=Vector2.new(0.5,0.5)
-        lbl.BackgroundTransparency=1;lbl.Text=fmtM(f);lbl.Font=Enum.Font.GothamBlack;lbl.ZIndex=6;lbl.TextScaled=true;lbl.Parent=bg
+        lbl.BackgroundTransparency=1;lbl.Text=fmtM(f);lbl.Font=Enum.Font.GothamBlack;lbl.ZIndex=6;lbl.Parent=bg
         lbl.TextColor3=mTextCol3(f)
-        local tsc=Instance.new('UITextSizeConstraint');tsc.MaxTextSize=22;tsc.MinTextSize=8;tsc.Parent=lbl
+        bg.ClipsDescendants=true
+        local oldCap=lbl:FindFirstChildOfClass('UITextSizeConstraint')
+        if oldCap then oldCap:Destroy() end
+        fitText(lbl, 7, 16)
         local ls=Instance.new('UIStroke');ls.Color=f>=1 and Color3.fromRGB(255,255,255) or Color3.fromRGB(20,10,60);ls.Thickness=1;ls.Transparency=0.25;ls.Parent=lbl
         multOb3[si]={bg=bg,f=f,tw=(W/nS),si=si}
     end
@@ -2799,7 +2907,7 @@ local minesMultLbl = infoLbl
 
 CasinoUiTheme.ensureGameTitle(minesPage, "Diamond Mines")
 CasinoUiTheme.stylePanel(gridHost, THEME.CORNER)
-CasinoUiTheme.stylePrimaryBtn(startBtn)
+CasinoUiTheme.styleCollectBtn(startBtn, false)
 CasinoUiTheme.styleGhostBtn(minusBtn)
 CasinoUiTheme.styleGhostBtn(plusBtn)
 if winDisplay then
@@ -2818,6 +2926,8 @@ local STEPS_M = { 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 }
 local BOMBS_FOR = { [3] = 1, [4] = 3, [5] = 5 }
 local sizeN = 3
 local inRound = false
+local minesSafeCount = 0
+local pendingReveal: number? = nil
 local cellBtns: { TextButton } = {}
 local collectPulse = Instance.new("UIScale")
 collectPulse.Name = "PulseScale"
@@ -2889,10 +2999,25 @@ local function buildGrid(cells, size)
 		cc.CornerRadius = UDim.new(0, 10)
 		cc.Parent = btn
 		btn.MouseButton1Click:Connect(function()
-			if not inRound or isMinesBusy then
+			if isMinesBusy then
 				return
 			end
 			if btn:GetAttribute("Opened") then
+				return
+			end
+			if not inRound then
+				local bet = getBetM()
+				if cachedCoins < bet then
+					if winDisplay then
+						winDisplay.Visible = true
+					end
+					setResultError(winDisplay, minesCoinsLbl, minesMultLbl, "Not enough Coins")
+					return
+				end
+				pendingReveal = i
+				isMinesBusy = true
+				fireSpinState("start", nil)
+				startMines:FireServer(bet, sizeN)
 				return
 			end
 			isMinesBusy = true
@@ -2929,10 +3054,11 @@ local function resetLobby()
 	inRound = false
 	minesRoundActive = false
 	isMinesBusy = false
+	minesSafeCount = 0
+	pendingReveal = nil
 	multLbl.Text = "1.00x"
 	collectPulse.Scale = 1
-	startBtn.Text = "START"
-	startBtn.Visible = true
+	CasinoUiTheme.styleCollectBtn(startBtn, false)
 	if winDisplay then
 		winDisplay.Visible = false
 	end
@@ -2941,24 +3067,13 @@ end
 setSize(3)
 resetLobby()
 
--- StartBtn doubles as Collect once a round is active
+-- Collect stays visible; grey until a round is live, grey again after collect
 startBtn.MouseButton1Click:Connect(function()
-	if not inRound then
-		local bet = getBetM()
-		if cachedCoins < bet then
-			if winDisplay then
-				winDisplay.Visible = true
-			end
-			setResultError(winDisplay, minesCoinsLbl, minesMultLbl, "Not enough Coins")
-			return
-		end
-		isMinesBusy = true
-		fireSpinState("start", nil)
-		startMines:FireServer(bet, sizeN)
-	else
-		isMinesBusy = true
-		collectMines:FireServer()
+	if not inRound or minesSafeCount < 1 or isMinesBusy then
+		return
 	end
+	isMinesBusy = true
+	collectMines:FireServer()
 end)
 
 local function shakeGrid()
@@ -2975,14 +3090,21 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 	if kind == "started" then
 		inRound = true
 		minesRoundActive = true
-		isMinesBusy = false
+		minesSafeCount = 0
 		setAllCoins(data.coins or cachedCoins)
 		multLbl.Text = "1.00x"
 		infoLbl.Text = "Bombs: " .. tostring(data.bombs or 1)
 		buildGrid(data.cells or (sizeN * sizeN), data.size or sizeN)
-		startBtn.Text = "COLLECT"
+		CasinoUiTheme.styleCollectBtn(startBtn, true)
 		if winDisplay then
 			winDisplay.Visible = false
+		end
+		local cell = pendingReveal
+		pendingReveal = nil
+		if cell then
+			revealMines:FireServer(cell)
+		else
+			isMinesBusy = false
 		end
 		return
 	end
@@ -3001,6 +3123,7 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		end
 		local mult = data.mult or 1
 		multLbl.Text = string.format("%.2fx", mult)
+		minesSafeCount = data.safeCount or (minesSafeCount + 1)
 		collectPulse.Scale = math.clamp(1 + (mult - 1) * 0.08, 1, 1.2)
 		pcall(function()
 			sndCommon:Play()
@@ -3033,7 +3156,9 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		inRound = false
 		minesRoundActive = false
 		isMinesBusy = false
-		startBtn.Text = "START"
+		minesSafeCount = 0
+		pendingReveal = nil
+		CasinoUiTheme.styleCollectBtn(startBtn, false)
 		task.delay(1.2, function()
 			if not inRound then
 				resetLobby()
@@ -3064,7 +3189,9 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 		inRound = false
 		minesRoundActive = false
 		isMinesBusy = false
-		startBtn.Text = "START"
+		minesSafeCount = 0
+		pendingReveal = nil
+		CasinoUiTheme.styleCollectBtn(startBtn, false)
 		task.delay(0.9, function()
 			if not inRound then
 				resetLobby()
@@ -3081,6 +3208,7 @@ minesUpdate.OnClientEvent:Connect(function(kind, data)
 			setAllCoins(data.coins)
 		end
 		isMinesBusy = false
+		pendingReveal = nil
 		fireSpinState("stop", nil)
 	end
 end)

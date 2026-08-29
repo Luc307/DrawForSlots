@@ -541,7 +541,7 @@ local function setupCanvas()
 
     local template = toolPanel:FindFirstChild("ColorBtn_1")
     if template and template:IsA("GuiObject") then
-        local BTN, GAP = 56, 6
+        local BTN, GAP = 36, 6
         local y0 = template.Position.Y.Offset
         local oldMax = 0
         for i = 1, 40 do
